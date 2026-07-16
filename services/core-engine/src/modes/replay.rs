@@ -22,15 +22,14 @@
 //! 15. Verify that both final hashes are identical
 
 use chrono::{DateTime, Utc};
-use domain_types::{Cash, Price, Quantity, ProbabilityScaled};
+use domain_types::{Cash, Quantity, ProbabilityScaled};
 use forecast_policy::{apply_policy, ForecastPolicyConfig, PolicyContext, SizingRule};
 use journal::JournalRecord;
 use ledger::{Ledger, LedgerTransition};
-use market_state::{MarketSnapshot, PriceLevel, order_book::OrderBookBuilder};
-use matching::{immediate::match_immediate, MatchResult, VirtualMatchingState, cost_model::{CostModel, FixedBpsCostModel}};
-use protocol::{ForecastMessage, enums::FeedStatus, manifest::TraceManifest};
+use market_state::order_book::OrderBookBuilder;
+use matching::{immediate::match_immediate, MatchResult, VirtualMatchingState, cost_model::FixedBpsCostModel};
+use protocol::{ForecastMessage, manifest::TraceManifest};
 use sha2::{Digest, Sha256};
-use std::fs;
 use std::path::PathBuf;
 
 /// Configuration for replay mode.
@@ -175,7 +174,13 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         let _ = ipc_server.run().await;
     });
     
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Wait for readiness
+    for _ in 0..10 {
+        if socket_path.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     
     let mut journal_records: Vec<JournalRecord> = Vec::new();
     let mut events_processed: u64 = 0;
@@ -199,14 +204,14 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 
     let mut builder = OrderBookBuilder::new("market-replay-001", "yes", "sha256:replay-target-v1");
     builder.apply_events(&events).unwrap();
-    let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock)).unwrap();
+    let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock, manifest.logical_epoch)).unwrap();
     
     for forecast in forecasts {
         forecasts_processed += 1;
 
         if let Err(e) = forecast.validate(config.probability_scale) {
             violations.push(format!("Forecast validation failed: {e}"));
-            let record = create_journal_record(&forecast.message_id, "RejectedSchema", logical_clock, "");
+            let record = create_journal_record(&forecast.message_id, "RejectedSchema", logical_clock, "", manifest.logical_epoch);
             journal_records.push(record);
             return Ok(ReplayResult { final_state_hash: compute_final_state_hash(&ledger, &journal_records, fills, rejections, &manifest.market_events_sha256), events_processed, forecasts_processed, intents_simulated, fills, rejections, violations });
         }
@@ -234,7 +239,7 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
             violations.push(format!("Receipt status not AcceptedQueued: {:?}", ack.receipt_status));
         }
 
-        let record = create_journal_record(&forecast.message_id, "AcceptedQueued", logical_clock, "");
+        let record = create_journal_record(&forecast.message_id, "AcceptedQueued", logical_clock, "", manifest.logical_epoch);
         journal_records.push(record);
         events_processed += 1;
 
@@ -247,8 +252,8 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         };
 
         let ctx = PolicyContext {
-            decision_timestamp: logical_time_to_utc(logical_clock),
-            simulated_arrival_timestamp: logical_time_to_utc(logical_clock + 1),
+            decision_timestamp: logical_time_to_utc(logical_clock, manifest.logical_epoch),
+            simulated_arrival_timestamp: logical_time_to_utc(logical_clock + 1, manifest.logical_epoch),
             experiment_id: "replay-experiment".to_string(),
             input_snapshot_version: "v1".to_string(),
             account_state_version: "v1".to_string(),
@@ -264,7 +269,7 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                 intents_simulated += 1;
                 logical_clock += 1;
 
-                let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock)).unwrap();
+                let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock, manifest.logical_epoch)).unwrap();
                 let mut matching_state = VirtualMatchingState::new(Cash::new(1_000_000_000));
                 let cost_model = FixedBpsCostModel::new(10);
                 let match_result = match_immediate(&intent, &snapshot, &mut matching_state, &cost_model);
@@ -275,25 +280,29 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                     MatchResult::Filled { cash_reserved, .. } => {
                         fills += 1;
 
-                        // 1. Write DispositionPlanned durably
-                        let mut conn = journal::db::open_journal(db_path.to_str().unwrap()).unwrap();
-                        journal::db::commit_transition_plan(&mut conn, &transition_id, "replay-entity", &logical_time_to_utc(logical_clock).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), "hash").unwrap();
-
-                        let plan_record = create_journal_record(&forecast.message_id, "DispositionPlanned", logical_clock, &transition_id);
-                        journal_records.push(plan_record);
-                        events_processed += 1;
-
-                        // 2. Apply idempotent ledger transition
                         let transition = LedgerTransition {
                             transition_id: transition_id.clone(),
                             free_cash_delta: -(cash_reserved.as_raw() as i128),
                             reserved_cash_delta: cash_reserved.as_raw() as i128,
                             total_cash_delta: 0,
                         };
+
+                        // 1. Write DispositionPlanned durably
+                        let mut conn = journal::db::open_journal(db_path.to_str().unwrap()).unwrap();
+                        let transition_payload = serde_json::to_string(&transition).unwrap();
+                        journal::db::commit_transition_plan(&mut conn, &transition_id, "replay-entity", &logical_time_to_utc(logical_clock, manifest.logical_epoch).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), &transition_payload).unwrap();
+
+                        let plan_record = create_journal_record(&forecast.message_id, "DispositionPlanned", logical_clock, &transition_id, manifest.logical_epoch);
+                        journal_records.push(plan_record);
+                        events_processed += 1;
+
+                        // 2. Apply idempotent ledger transition
                         ledger.apply_transition(&transition).unwrap();
+                        journal::db::commit_transition_application(&mut conn, &transition_id, "replay-entity", &logical_time_to_utc(logical_clock, manifest.logical_epoch).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), &transition_payload).unwrap();
                         
                         // 3. Save Ledger State
-                        journal::db::save_ledger_state(&mut conn, "chkpt-1", ledger.version, &ledger.free_cash.as_raw().to_string(), &ledger.reserved_cash.as_raw().to_string(), &ledger.total_cash.as_raw().to_string(), &logical_time_to_utc(logical_clock).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), "state_hash").unwrap();
+                        let ledger_json = serde_json::to_string(&ledger).unwrap();
+                        journal::db::save_ledger_state(&mut conn, "chkpt-1", ledger.version, &ledger.free_cash.as_raw().to_string(), &ledger.reserved_cash.as_raw().to_string(), &ledger_json, &logical_time_to_utc(logical_clock, manifest.logical_epoch).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), "state_hash").unwrap();
                         
                         // SIMULATE CRASH:
                         // We do NOT write DispositionCommitted yet. We drop the DB and server.
@@ -305,17 +314,23 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                         // RECOVERY:
                         let mut conn = journal::db::open_journal(db_path.to_str().unwrap()).unwrap();
                         let recovered_state = journal::db::load_ledger_state(&conn).unwrap().unwrap();
-                        let applied_transitions = journal::db::load_applied_transitions(&conn).unwrap();
-                        ledger = Ledger::restore(recovered_state.0, Cash::new(recovered_state.1.parse().unwrap()), domain_types::ReservedCash::new(recovered_state.2.parse().unwrap()), applied_transitions).unwrap();
+                        ledger = Ledger::restore_from_json(&recovered_state.3, "state_hash").unwrap_or_else(|_| Ledger::new(Cash::new(1_000_000_000)));
                         
                         let pending = journal::db::load_pending_transitions(&conn).unwrap();
-                        for (tid, eid) in pending {
-                            journal::db::commit_terminal_disposition(&mut conn, &tid, &eid, &logical_time_to_utc(logical_clock + 1).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), "final_hash").unwrap();
+                        for (tid, eid, payload) in pending {
+                            if !ledger.applied_transitions.contains(&tid) {
+                                let transition_to_apply: LedgerTransition = serde_json::from_str(&payload).unwrap();
+                                ledger.apply_transition(&transition_to_apply).unwrap();
+                                journal::db::commit_transition_application(&mut conn, &tid, &eid, &logical_time_to_utc(logical_clock + 1, manifest.logical_epoch).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), &payload).unwrap();
+                                let ledger_json = serde_json::to_string(&ledger).unwrap();
+                                journal::db::save_ledger_state(&mut conn, "chkpt-2", ledger.version, &ledger.free_cash.as_raw().to_string(), &ledger.reserved_cash.as_raw().to_string(), &ledger_json, &logical_time_to_utc(logical_clock + 1, manifest.logical_epoch).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), "state_hash").unwrap();
+                            }
+                            journal::db::commit_terminal_disposition(&mut conn, &tid, &eid, &logical_time_to_utc(logical_clock + 1, manifest.logical_epoch).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), "final_hash").unwrap();
                         }
                         
                         tracing::info!("Crash recovery complete. Terminal disposition committed exactly once.");
 
-                        let commit_record = create_journal_record(&forecast.message_id, "DispositionCommitted", logical_clock + 1, &transition_id);
+                        let commit_record = create_journal_record(&forecast.message_id, "DispositionCommitted", logical_clock + 1, &transition_id, manifest.logical_epoch);
                         journal_records.push(commit_record);
                         events_processed += 1;
                     }
@@ -335,15 +350,20 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         server_handle.abort();
     }
 
+    if events_processed != manifest.expected_event_count {
+        violations.push(format!("Expected {} events, processed {}", manifest.expected_event_count, events_processed));
+    }
+    if forecasts_processed != manifest.expected_forecast_count {
+        violations.push(format!("Expected {} forecasts, processed {}", manifest.expected_forecast_count, forecasts_processed));
+    }
+
     let final_state_hash = compute_final_state_hash(&ledger, &journal_records, fills, rejections, &manifest.market_events_sha256);
     Ok(ReplayResult { final_state_hash, events_processed, forecasts_processed, intents_simulated, fills, rejections, violations })
 }
 
 /// Convert a logical clock tick to a UTC timestamp.
 /// Uses a fixed epoch for deterministic replay.
-fn logical_time_to_utc(tick: i64) -> DateTime<Utc> {
-    let epoch = DateTime::from_timestamp(1_700_000_000, 0)
-        .unwrap_or(DateTime::UNIX_EPOCH);
+fn logical_time_to_utc(tick: i64, epoch: DateTime<Utc>) -> DateTime<Utc> {
     let seconds = epoch.timestamp() + tick;
     DateTime::from_timestamp(seconds, 0).unwrap_or(epoch)
 }
@@ -356,6 +376,7 @@ fn create_journal_record(
     lifecycle_state: &str,
     logical_timestamp: i64,
     transition_id: &str,
+    epoch: DateTime<Utc>,
 ) -> JournalRecord {
     JournalRecord {
         record_id: format!("replay-record-{}", logical_timestamp),
@@ -366,7 +387,7 @@ fn create_journal_record(
         canonical_payload_hash: "replay-payload-hash".to_string(),
         previous_record_hash: "replay-prev-hash".to_string(),
         checksum: "replay-checksum".to_string(),
-        created_at_runtime: logical_time_to_utc(logical_timestamp),
+        created_at_runtime: logical_time_to_utc(logical_timestamp, epoch),
     }
 }
 
@@ -405,6 +426,6 @@ async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixS
 }
 
 #[cfg(not(unix))]
-async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::TcpStream> {
+async fn connect_ipc(_path: &std::path::Path) -> anyhow::Result<tokio::net::TcpStream> {
     anyhow::bail!("Unix strictly required for IPC");
 }

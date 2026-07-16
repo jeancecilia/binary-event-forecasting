@@ -55,24 +55,20 @@ impl Ledger {
         }
     }
 
-    /// Restore ledger from durable state.
-    pub fn restore(
-        version: u64,
-        free_cash: Cash,
-        reserved_cash: ReservedCash,
-        applied_transitions: std::collections::BTreeSet<String>,
+    /// Restore ledger from durable JSON state.
+    pub fn restore_from_json(
+        json_payload: &str,
+        expected_hash: &str,
     ) -> Result<Self, String> {
-        let total_cash = Cash::new(free_cash.as_raw() + reserved_cash.as_raw() as i128);
-        let mut ledger = Self {
-            free_cash,
-            reserved_cash,
-            total_cash,
-            realized_pnl: SignedPnl::ZERO,
-            unrealized_pnl: SignedPnl::ZERO,
-            inventory: matching::inventory::Inventory::new(),
-            version,
-            applied_transitions,
-        };
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(json_payload.as_bytes());
+        let computed_hash = hex::encode(hasher.finalize());
+        if computed_hash != expected_hash {
+            return Err(format!("Ledger state hash mismatch. Expected {}, got {}", expected_hash, computed_hash));
+        }
+
+        let ledger: Self = serde_json::from_str(json_payload).map_err(|e| e.to_string())?;
         ledger.verify_cash_invariant()?;
         Ok(ledger)
     }

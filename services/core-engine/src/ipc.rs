@@ -58,9 +58,10 @@ impl IpcServer {
             if !meta.file_type().is_socket() {
                 anyhow::bail!("Configured IPC path exists and is not a socket.");
             }
-            // In a real system, we might also verify ownership here:
-            // use std::os::unix::fs::MetadataExt;
-            // if meta.uid() != unsafe { libc::geteuid() } { anyhow::bail!("Socket owned by different user"); }
+            use std::os::unix::fs::MetadataExt;
+            if meta.uid() != rustix::process::geteuid().as_raw() { 
+                anyhow::bail!("Socket owned by different user"); 
+            }
             
             std::fs::remove_file(&self.socket_path)?;
         }
@@ -69,10 +70,9 @@ impl IpcServer {
         
         // Try to set permissions on UNIX
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(mut perms) = std::fs::metadata(&self.socket_path).map(|m| m.permissions()) {
-            perms.set_mode(0o600);
-            let _ = std::fs::set_permissions(&self.socket_path, perms);
-        }
+        let mut perms = std::fs::metadata(&self.socket_path)?.permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&self.socket_path, perms)?;
 
         loop {
             let (socket, _) = listener.accept().await?;
@@ -106,7 +106,7 @@ impl IpcServer {
         // Peer credential authentication
         match socket.peer_cred() {
             Ok(cred) => {
-                let current_uid = unsafe { libc::geteuid() };
+                let current_uid = rustix::process::geteuid().as_raw();
                 if cred.uid() != current_uid {
                     tracing::error!("Unauthorized peer UID: {}. Expected: {}", cred.uid(), current_uid);
                     return;
@@ -137,49 +137,67 @@ impl IpcServer {
                         socket.read_exact(&mut payload)
                     ).await {
                         // Deserialize & Validate
-                        if let Ok(msg) = serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
-                            // Validate Message
-                            let mut status = protocol::enums::ReceiptStatus::AcceptedQueued;
-                            if msg.validate(probability_scale).is_err() {
-                                status = protocol::enums::ReceiptStatus::RejectedBounds;
-                            }
+                        match serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
+                            Ok(msg) => {
+                                let mut status = protocol::enums::ReceiptStatus::AcceptedQueued;
+                                if msg.validate(probability_scale).is_err() {
+                                    status = protocol::enums::ReceiptStatus::RejectedBounds;
+                                }
 
-                            // Open DB and store receipt durably
-                            if status == protocol::enums::ReceiptStatus::AcceptedQueued {
-                                if let Ok(mut conn) = journal::db::open_journal(db_path.to_str().unwrap()) {
-                                    let timestamp = msg.forecast_emitted_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-                                    let payload_hash = protocol::canonical::canonical_hash(&msg).unwrap_or_else(|_| "0000".to_string());
-                                    if let Ok(db_status) = journal::db::process_forecast_receipt(
-                                        &mut conn,
-                                        &msg.message_id,
-                                        &msg.sender_instance_id,
-                                        msg.sender_sequence,
-                                        &payload_hash,
-                                        &timestamp
-                                    ) {
-                                        status = db_status;
+                                if status == protocol::enums::ReceiptStatus::AcceptedQueued {
+                                    if let Ok(hash) = protocol::canonical::canonical_hash(&msg) {
+                                        if let Ok(mut conn) = journal::db::open_journal(db_path.to_str().unwrap()) {
+                                            let timestamp = msg.forecast_emitted_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                                            if let Ok(db_status) = journal::db::process_forecast_receipt(
+                                                &mut conn,
+                                                &msg.message_id,
+                                                &msg.sender_instance_id,
+                                                msg.sender_sequence,
+                                                &hash,
+                                                &timestamp
+                                            ) {
+                                                status = db_status;
+                                            } else {
+                                                status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                            }
+                                        } else {
+                                            status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                        }
                                     } else {
-                                        status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                        status = protocol::enums::ReceiptStatus::RejectedSchema;
                                     }
-                                } else {
-                                    status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                }
+                                
+                                let receipt_id = format!("receipt-{}", msg.message_id);
+                                let receipt = protocol::ReceiptAcknowledgement {
+                                    schema_version: 1,
+                                    message_id: msg.message_id.clone(),
+                                    receipt_status: status,
+                                    timestamp: msg.forecast_emitted_at, // deterministic based on message
+                                    receipt_id,
+                                    detail: None,
+                                };
+                                
+                                if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
+                                    let resp_len = (resp_bytes.len() as u32).to_be_bytes();
+                                    let _ = socket.write_all(&resp_len).await;
+                                    let _ = socket.write_all(&resp_bytes).await;
                                 }
                             }
-                            
-                            let receipt_id = format!("receipt-{}", msg.message_id);
-                            let receipt = protocol::ReceiptAcknowledgement {
-                                schema_version: 1,
-                                message_id: msg.message_id.clone(),
-                                receipt_status: status,
-                                timestamp: msg.forecast_emitted_at, // deterministic based on message
-                                receipt_id,
-                                detail: None,
-                            };
-                            
-                            if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
-                                let resp_len = (resp_bytes.len() as u32).to_be_bytes();
-                                let _ = socket.write_all(&resp_len).await;
-                                let _ = socket.write_all(&resp_bytes).await;
+                            Err(_) => {
+                                let receipt = protocol::ReceiptAcknowledgement {
+                                    schema_version: 1,
+                                    message_id: "unknown".to_string(),
+                                    receipt_status: protocol::enums::ReceiptStatus::RejectedSchema,
+                                    timestamp: chrono::Utc::now(),
+                                    receipt_id: "receipt-unknown".to_string(),
+                                    detail: Some("Deserialization failed".to_string()),
+                                };
+                                if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
+                                    let resp_len = (resp_bytes.len() as u32).to_be_bytes();
+                                    let _ = socket.write_all(&resp_len).await;
+                                    let _ = socket.write_all(&resp_bytes).await;
+                                }
                             }
                         }
                     }

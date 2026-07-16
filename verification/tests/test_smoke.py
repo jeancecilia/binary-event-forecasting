@@ -47,7 +47,7 @@ def test_forecast_message_instantiation():
         uncertainty_method="method",
         decision_cutoff_at=t_decision,
         forecast_created_at=t_created,
-        forecast_emitted_at=t_created,
+        forecast_emitted_at=t_created + timedelta(seconds=1),
         expires_at=t_created + timedelta(hours=1),
     )
     
