@@ -21,6 +21,8 @@
 //! 14. Run the exact replay twice
 //! 15. Verify that both final hashes are identical
 
+#![allow(clippy::unwrap_used)]
+
 use chrono::{DateTime, Utc};
 use domain_types::{Cash, ProbabilityScaled, Quantity};
 use forecast_policy::{apply_policy, ForecastPolicyConfig, PolicyContext, SizingRule};
@@ -216,7 +218,7 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 
     let mut builder = OrderBookBuilder::new("market-replay-001", "yes", "sha256:replay-target-v1");
     builder.apply_events(&events).unwrap();
-    let snapshot = builder
+    let _snapshot = builder
         .build(
             logical_clock,
             logical_time_to_utc(logical_clock, manifest.logical_epoch),
@@ -337,8 +339,8 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 
                         let transition = LedgerTransition {
                             transition_id: transition_id.clone(),
-                            free_cash_delta: -(cash_reserved.as_raw() as i128),
-                            reserved_cash_delta: cash_reserved.as_raw() as i128,
+                            free_cash_delta: -(cash_reserved.as_raw()),
+                            reserved_cash_delta: cash_reserved.as_raw(),
                             total_cash_delta: 0,
                         };
 
