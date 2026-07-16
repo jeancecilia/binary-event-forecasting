@@ -30,6 +30,8 @@ dev-dependencies = [
     "pre-commit>=3",
     "duckdb>=1",
     "pyarrow>=17",
+    "pydantic>=2",
+    "pydantic-settings>=2",
 ]
 
 [tool.ruff]
