@@ -65,6 +65,10 @@ extraPaths = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = [
+    "python-packages/contracts-py/src",
+    "services/intelligence-plane/src"
+]
 testpaths = ["python-packages/*/tests", "verification/tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]

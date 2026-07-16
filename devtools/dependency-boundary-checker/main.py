@@ -11,8 +11,8 @@ ALLOWED_INTERNAL_DEPS: dict[str, set[str]] = {
     "ledger": {"domain-types", "protocol", "matching"},
     "journal": {"domain-types", "protocol", "ledger"},
     "replay": {"domain-types", "protocol", "journal"},
-    "experiment-control": {"protocol"},
-    "telemetry": set(),
+    "experiment-control": {"protocol", "domain-types"},
+    "telemetry": {"protocol", "domain-types"},
     "core-engine": {"domain-types", "protocol", "market-state", "forecast-policy", "matching", "ledger", "journal", "replay", "experiment-control", "telemetry"},
     "mock-gateway": {"domain-types", "protocol", "market-state", "forecast-policy", "matching", "ledger", "journal", "replay", "experiment-control", "telemetry"},
 }

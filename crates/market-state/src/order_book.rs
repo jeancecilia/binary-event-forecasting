@@ -186,7 +186,7 @@ impl OrderBookBuilder {
             source_sequence: self.source_sequence,
             source_timestamp,
             logical_timestamp,
-            sync_status: self.sync_status.clone(),
+            sync_status: self.sync_status,
             bids: self.bids.clone(),
             asks: self.asks.clone(),
             target_definition_version: self.target_definition_version.clone(),
