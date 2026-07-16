@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 /// TOML-deserializable configuration.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlConfig {
     pub engine: EngineSection,
     pub journal: Option<JournalSection>,
@@ -13,6 +14,7 @@ pub struct TomlConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EngineSection {
     pub socket_path: PathBuf,
     pub mode: String,
@@ -22,11 +24,13 @@ pub struct EngineSection {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalSection {
     pub path: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpoolSection {
     pub path: PathBuf,
     pub max_bytes: Option<u64>,
@@ -35,6 +39,7 @@ pub struct SpoolSection {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PostgresSection {
     pub url: String,
 }

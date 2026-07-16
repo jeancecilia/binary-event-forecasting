@@ -22,7 +22,7 @@ from pathlib import Path
 
 # Only match heading-style normative definitions: "## REQ-ID — Name"
 NORMATIVE_HEADING_RE = re.compile(
-    r"^##\s+([A-Z]+-\d{3})\s+—\s+.+$",
+    r"^##\s+([A-Z]+-\d{3})\s+—\s+(.+?)\s*$",
     re.MULTILINE,
 )
 # Match any REQ ID pattern for cross-referencing
@@ -39,9 +39,12 @@ def _has_invisible_chars(s: str) -> bool:
     return False
 
 
-def extract_normative_headings(text: str) -> set[str]:
-    """Extract REQ IDs from normative heading lines only."""
-    return set(NORMATIVE_HEADING_RE.findall(text))
+def extract_normative_headings(text: str) -> dict[str, str]:
+    """Extract REQ IDs and names from normative heading lines only."""
+    headings = {}
+    for match in NORMATIVE_HEADING_RE.finditer(text):
+        headings[match.group(1)] = match.group(2).strip()
+    return headings
 
 
 def extract_all_req_ids(text: str) -> set[str]:
@@ -70,20 +73,14 @@ def find_verif_test_dirs(verification_dir: Path) -> set[str]:
     return verif_dirs
 
 
-def check_invisible_chars_in_ids(text: str) -> list[str]:
+def check_identifier(identifier: str, location: str) -> list[str]:
     """Check for invisible/control characters inside REQ and VERIF IDs."""
     issues: list[str] = []
-    # Scan each character position looking for invisible chars near ID-like patterns
-    for i, ch in enumerate(text):
+    for ch in identifier:
         cat = unicodedata.category(ch)
         if cat.startswith('C'):
-            # Get surrounding context
-            start = max(0, i - 30)
-            end = min(len(text), i + 30)
-            context = text[start:end].replace('\n', '\\n').replace('\r', '\\r')
             issues.append(
-                f"Control/invisible character U+{ord(ch):04X} (category {cat}) "
-                f"at position {i}. Context: ...{context}..."
+                f"Invisible character U+{ord(ch):04X} in {location}: {identifier!r}"
             )
     return issues
 
@@ -153,26 +150,39 @@ def main() -> int:
     for row in matrix_rows:
         req_id = row.get('Req ID', '').strip()
         verif_id = row.get('Verif ID', '').strip()
+        req_name = row.get('Req Name', '').strip()
+
         if req_id:
             matrix_req_ids.add(req_id)
+            if control_issues := check_identifier(req_id, "Matrix REQ ID"):
+                errors.extend(control_issues)
+            
+            if req_id in srs_headings:
+                if req_name != srs_headings[req_id]:
+                    errors.append(f"Name mismatch for {req_id}: Matrix says {req_name!r}, SRS says {srs_headings[req_id]!r}")
+
         if verif_id:
             if verif_id in matrix_verif_ids:
                 errors.append(f"Duplicate VERIF ID in matrix: {verif_id}")
             matrix_verif_ids.add(verif_id)
+            if control_issues := check_identifier(verif_id, "Matrix VERIF ID"):
+                errors.extend(control_issues)
 
-    # Check invisible/control characters in the SRS text
-    control_issues = check_invisible_chars_in_ids(srs_text)
-    if control_issues:
-        errors.extend(control_issues)
+    # Check invisible/control characters in the SRS headings
+    for req_id, req_name in srs_headings.items():
+        if control_issues := check_identifier(req_id, "SRS REQ ID"):
+            errors.extend(control_issues)
+        if control_issues := check_identifier(req_name, "SRS REQ Name"):
+            errors.extend(control_issues)
 
     # Check duplicate normative headings
     dup_issues = check_duplicate_normative_headings(srs_text)
     errors.extend(dup_issues)
 
-    # Check 1: Every matrix REQ ID exists somewhere in the SRS
+    # Check 1: Every matrix REQ ID exists as a normative heading in the SRS
     for req_id in sorted(matrix_req_ids):
-        if req_id not in srs_all_ids:
-            errors.append(f"REQ ID '{req_id}' in matrix not found in SRS")
+        if req_id not in srs_headings:
+            errors.append(f"REQ ID '{req_id}' in matrix has no corresponding normative heading in SRS")
 
     # Check 2: Every normative heading has at least one verification
     for req_id in sorted(srs_headings):

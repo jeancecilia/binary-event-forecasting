@@ -68,7 +68,7 @@ pub struct HoldoutAccessEntry {
 
 /// Check if a design change requires a new experiment.
 pub fn requires_new_experiment(
-    original_manifest: &ExperimentManifest,
+    _original_manifest: &ExperimentManifest,
     proposed_changes: &[String],
     _holdout_accessed: bool,
 ) -> bool {

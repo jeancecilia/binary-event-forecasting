@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlConfig {
     pub gateway: GatewaySection,
     pub scenarios: ScenariosSection,
@@ -10,6 +11,7 @@ pub struct TomlConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GatewaySection {
     pub environment: String,
     pub scenario_id: String,
@@ -17,11 +19,13 @@ pub struct GatewaySection {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScenariosSection {
     pub path: std::path::PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TraceSection {
     pub path: std::path::PathBuf,
 }

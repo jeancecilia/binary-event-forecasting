@@ -181,7 +181,10 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
             let snapshot = create_sample_snapshot(logical_clock);
 
             // Step 9: Execute all-or-none match
-            let mut matching_state = VirtualMatchingState::new(Cash::new(1_000_000_000));
+            let mut matching_state = VirtualMatchingState::new(
+                Cash::new(1_000_000_000),
+                Quantity::from_raw(1_000_000_000),
+            );
             let match_result = match_immediate(&intent, &snapshot, &mut matching_state);
 
             let transition_id = format!("transition-{}", logical_clock);
@@ -254,7 +257,7 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 /// Uses a fixed epoch for deterministic replay.
 fn logical_time_to_utc(tick: i64) -> DateTime<Utc> {
     let epoch = DateTime::from_timestamp(1_700_000_000, 0)
-        .unwrap_or_else(|| DateTime::UNIX_EPOCH);
+        .unwrap_or(DateTime::UNIX_EPOCH);
     let seconds = epoch.timestamp() + tick;
     DateTime::from_timestamp(seconds, 0).unwrap_or(epoch)
 }

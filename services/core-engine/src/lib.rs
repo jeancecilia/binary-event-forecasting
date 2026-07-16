@@ -68,7 +68,7 @@ impl CoreConfig {
     pub fn from_file(path: &std::path::Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: config::TomlConfig = toml::from_str(&content)?;
-        Ok(config.into_core_config()?)
+        config.into_core_config()
     }
 
     /// Returns true if the engine is in replay mode.

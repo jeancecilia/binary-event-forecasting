@@ -26,10 +26,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Check dependency boundaries
         run: |
-          echo "Dependency boundary check — requires devtools/dependency-boundary-checker implementation"
-          echo "See ADR-002 for allowed dependency directions"
-          echo "This check will fail until the checker is implemented."
-          exit 1
+          echo "Checking dependency boundaries..."
+          python devtools/dependency-boundary-checker/main.py
 
   forbidden-patterns:
     runs-on: ubuntu-latest

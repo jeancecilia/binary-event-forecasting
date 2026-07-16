@@ -57,7 +57,8 @@ impl ProbabilityScaled {
 
     /// Convert to a floating-point representation (for reporting/display only).
     /// NOT for use in state accounting or matching.
-    pub fn to_f64_lossy(&self, scale: u64) -> f64 {
+    #[allow(clippy::float_arithmetic)]
+    pub fn as_f64(&self, scale: u64) -> f64 {
         self.0 as f64 / scale as f64
     }
 

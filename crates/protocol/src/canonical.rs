@@ -8,6 +8,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 /// Compute the SHA-256 hash of a value using canonical JSON serialization.
+#[allow(dead_code, unreachable_pub)]
 pub fn canonical_hash<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
     let json = canonical_json(value)?;
     let hash = Sha256::digest(json.as_bytes());
@@ -21,6 +22,7 @@ pub fn canonical_hash<T: Serialize>(value: &T) -> Result<String, serde_json::Err
 /// - No whitespace outside string values
 /// - Minimal Unicode escaping
 /// - Consistent number formatting
+#[allow(dead_code, unreachable_pub)]
 pub fn canonical_json<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
     let json_value = serde_json::to_value(value)?;
     let canonical = sort_json_keys(&json_value);

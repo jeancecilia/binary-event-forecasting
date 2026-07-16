@@ -69,6 +69,7 @@ pub enum SizingRule {
 
 /// Result of applying the forecast policy.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum PolicyResult {
     /// Generate this simulation intent
     Intent(SimulationIntent),

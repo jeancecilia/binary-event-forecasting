@@ -10,8 +10,7 @@ pub mod passive_queue;
 pub mod virtual_depth;
 
 use domain_types::{Cash, Notional, Price, Quantity, ReservedCash};
-use market_state::MarketSnapshot;
-use protocol::{SimulationIntent, enums::*};
+
 
 /// Result of a matching operation.
 #[derive(Debug, Clone)]
@@ -26,6 +25,8 @@ pub enum MatchResult {
         notional: Notional,
         /// Cash reserved for this fill
         cash_reserved: Cash,
+        /// Inventory reserved for this fill
+        inventory_reserved: Quantity,
     },
     /// Intent was rejected (insufficient depth, invalid state, etc.)
     Rejected { reason: String },
@@ -51,16 +52,25 @@ pub struct VirtualMatchingState {
     pub total_cash: Cash,
     /// Shared virtual depth tracker
     pub virtual_depth: virtual_depth::VirtualDepth,
+    /// Free inventory available
+    pub free_inventory: Quantity,
+    /// Inventory reserved for open orders
+    pub reserved_inventory: Quantity,
+    /// Total inventory
+    pub total_inventory: Quantity,
 }
 
 impl VirtualMatchingState {
     /// Create a new virtual matching state with initial cash.
-    pub fn new(initial_cash: Cash) -> Self {
+    pub fn new(initial_cash: Cash, initial_inventory: Quantity) -> Self {
         Self {
             free_cash: initial_cash,
             reserved_cash: ReservedCash::ZERO,
             total_cash: initial_cash,
             virtual_depth: virtual_depth::VirtualDepth::new(),
+            free_inventory: initial_inventory,
+            reserved_inventory: Quantity::ZERO,
+            total_inventory: initial_inventory,
         }
     }
 
@@ -77,6 +87,24 @@ impl VirtualMatchingState {
                 self.free_cash.as_raw(),
                 self.reserved_cash.as_raw(),
                 self.total_cash.as_raw()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Verify the inventory invariant: FreeInventory + ReservedInventory = TotalInventory
+    pub fn verify_inventory_invariant(&self) -> Result<(), String> {
+        let sum = self
+            .free_inventory
+            .as_raw()
+            .checked_add(self.reserved_inventory.as_raw())
+            .ok_or("Inventory invariant overflow during check")?;
+        if sum != self.total_inventory.as_raw() {
+            return Err(format!(
+                "Inventory invariant violated: free({}) + reserved({}) != total({})",
+                self.free_inventory.as_raw(),
+                self.reserved_inventory.as_raw(),
+                self.total_inventory.as_raw()
             ));
         }
         Ok(())

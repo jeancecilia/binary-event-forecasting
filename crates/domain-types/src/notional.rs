@@ -15,6 +15,11 @@ impl Notional {
     /// Zero notional.
     pub const ZERO: Self = Notional(0);
 
+    /// Create a Notional directly from a raw value.
+    pub const fn from_raw(raw: u64) -> Self {
+        Notional(raw)
+    }
+
     /// Compute notional from price and quantity using wide intermediate arithmetic.
     ///
     /// Uses 128-bit intermediates to prevent overflow:
@@ -58,6 +63,7 @@ impl Notional {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

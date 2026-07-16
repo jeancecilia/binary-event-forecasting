@@ -14,6 +14,7 @@ pub const DEFAULT_MAX_SIGNAL_FRAME_BYTES: usize = 1_048_576;
 pub const FRAME_HEADER_SIZE: usize = 4;
 
 /// IpcServer manages the AF_UNIX socket and message dispatch.
+#[allow(dead_code)]
 pub struct IpcServer {
     socket_path: std::path::PathBuf,
     max_frame_bytes: usize,

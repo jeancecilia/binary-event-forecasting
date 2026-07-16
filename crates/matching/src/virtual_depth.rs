@@ -4,7 +4,7 @@
 //! Observable depth, cash, reserved cash, inventory, and margin
 //! must not be consumed more than once.
 
-use domain_types::{Price, Quantity};
+use domain_types::Quantity;
 use protocol::enums::BookSide;
 use std::collections::HashMap;
 
@@ -32,6 +32,11 @@ impl VirtualDepth {
         Self {
             consumed: HashMap::new(),
         }
+    }
+
+    /// Get the amount already consumed at a given depth key.
+    pub fn consumed_quantity(&self, key: &DepthKey) -> u64 {
+        self.consumed.get(key).map(|q| q.as_raw()).unwrap_or(0)
     }
 
     /// Check if consuming additional quantity at a depth key would exceed available.

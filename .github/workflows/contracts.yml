@@ -23,25 +23,29 @@ jobs:
 
   cross-language-hash:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v2
       - run: uv sync
-      - name: Cross-language hash verification
+      - name: Cross-language hash verification (PENDING)
         run: |
           echo "WARNING: Cross-language golden vector tests require contract implementation (Milestone 2)."
           echo "Rust canonicalization is implemented; Python canonicalizer pending."
-          echo "Skipping — not a blocking failure for Milestone 0."
+          echo "Failing step to indicate pending status, but continue-on-error is true."
+          exit 1
 
   golden-vectors:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v2
       - run: uv sync
-      - name: Golden vector tests
+      - name: Golden vector tests (PENDING)
         run: |
           echo "WARNING: Golden vector tests require cross-language hash equivalence (Milestone 2)."
-          echo "Skipping — not a blocking failure for Milestone 0."
+          echo "Failing step to indicate pending status, but continue-on-error is true."
+          exit 1

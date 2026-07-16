@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
 fn validate_local_bind(address: &str) -> anyhow::Result<LocalBind> {
     // Unix socket path
     if address.starts_with('/') || address.starts_with("./") || address.starts_with("../") {
-        return Ok(LocalBind::Unix(PathBuf::from(address)));
+        anyhow::bail!("Unix socket paths are prohibited in the mock gateway");
     }
 
     // Try parsing as SocketAddr directly (handles 127.0.0.1:8080 and [::1]:8080)
