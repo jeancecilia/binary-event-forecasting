@@ -200,6 +200,7 @@ pub fn commit_terminal_disposition(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn save_ledger_state(
     conn: &mut Connection,
     checkpoint_id: &str,

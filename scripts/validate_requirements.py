@@ -196,7 +196,8 @@ def main() -> int:
                 )
             else:
                 errors.append(
-                    f"VERIF ID '{verif_id}' ({verif_type}) has no test directory in verification/tests/"
+                    f"VERIF ID '{verif_id}' ({verif_type}) has no test directory in "
+                    "verification/tests/"
                 )
 
     # Report

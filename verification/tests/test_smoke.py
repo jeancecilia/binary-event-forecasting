@@ -1,13 +1,13 @@
 """Smoke test to ensure the pytest test runner functions correctly."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from contracts_py.forecast import SCHEMA_VERSION, ForecastMessage
 
 
 def test_forecast_message_instantiation():
     """Verify that a minimal ForecastMessage can be instantiated."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     t_train = now - timedelta(hours=2)
     t_decision = now - timedelta(hours=1)
     t_created = now
@@ -50,6 +50,6 @@ def test_forecast_message_instantiation():
         forecast_emitted_at=t_created + timedelta(seconds=1),
         expires_at=t_created + timedelta(hours=1),
     )
-    
+
     assert msg.message_id == "123e4567-e89b-12d3-a456-426614174000"
     assert msg.schema_version == SCHEMA_VERSION

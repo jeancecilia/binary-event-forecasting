@@ -5,25 +5,26 @@ Validates that JSON schemas, Rust types, Python models, and golden vectors
 are consistent.
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Add python-packages/contracts-py/src to path
 repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(repo_root / "python-packages" / "contracts-py" / "src"))
 
-from contracts_py.forecast import ForecastMessage
+from contracts_py.forecast import ForecastMessage  # noqa: E402
+
 
 def main() -> int:
     print("Contract validation starting...")
-    
+
     golden_forecast_path = repo_root / "data" / "traces" / "golden" / "forecast-messages.jsonl"
     if not golden_forecast_path.exists():
         print(f"Error: missing golden trace {golden_forecast_path}")
         return 1
 
     try:
-        with open(golden_forecast_path, "r") as f:
+        with open(golden_forecast_path) as f:
             for line in f:
                 if not line.strip():
                     continue

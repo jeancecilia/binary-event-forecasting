@@ -74,7 +74,7 @@ pub fn match_immediate(
     let inv_key = crate::inventory::InventoryKey {
         market_id: intent.market_id.clone(),
         outcome_id: intent.contract_or_outcome_id.clone(),
-        side: intent.outcome_side.clone(),
+        side: intent.outcome_side,
     };
     let mut inv_line = candidate.inventory.get_line(&inv_key);
 
@@ -88,16 +88,14 @@ pub fn match_immediate(
                 ),
             };
         }
-    } else {
-        if !inv_line.free.is_at_least(&fill_plan.filled_quantity) {
-            return MatchResult::Rejected {
-                reason: format!(
-                    "Insufficient inventory: available={}, required={}",
-                    inv_line.free.as_raw(),
-                    fill_plan.filled_quantity.as_raw()
-                ),
-            };
-        }
+    } else if !inv_line.free.is_at_least(&fill_plan.filled_quantity) {
+        return MatchResult::Rejected {
+            reason: format!(
+                "Insufficient inventory: available={}, required={}",
+                inv_line.free.as_raw(),
+                fill_plan.filled_quantity.as_raw()
+            ),
+        };
     }
 
     for level in &fill_plan.level_fills {
@@ -217,7 +215,7 @@ fn build_fill_plan(
         let depth_key = DepthKey {
             market_id: snapshot.market_id.clone(),
             contract_or_outcome_id: snapshot.contract_or_outcome_id.clone(),
-            book_side: book_side.clone(),
+            book_side,
             price_raw: level.price.as_raw(),
             feed_generation: snapshot.feed_generation,
         };

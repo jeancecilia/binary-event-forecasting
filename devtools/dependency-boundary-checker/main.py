@@ -13,8 +13,14 @@ ALLOWED_INTERNAL_DEPS: dict[str, set[str]] = {
     "replay": {"domain-types", "protocol", "journal"},
     "experiment-control": {"protocol", "domain-types"},
     "telemetry": {"protocol", "domain-types"},
-    "core-engine": {"domain-types", "protocol", "market-state", "forecast-policy", "matching", "ledger", "journal", "replay", "experiment-control", "telemetry"},
-    "mock-gateway": {"domain-types", "protocol", "market-state", "forecast-policy", "matching", "ledger", "journal", "replay", "experiment-control", "telemetry"},
+    "core-engine": {
+        "domain-types", "protocol", "market-state", "forecast-policy", "matching",
+        "ledger", "journal", "replay", "experiment-control", "telemetry"
+    },
+    "mock-gateway": {
+        "domain-types", "protocol", "market-state", "forecast-policy", "matching",
+        "ledger", "journal", "replay", "experiment-control", "telemetry"
+    },
 }
 
 
@@ -37,16 +43,19 @@ def check_dependencies():
             # Check standard dependencies
             deps = data.get("dependencies", {})
             for dep_name in deps:
-                if dep_name in ALLOWED_INTERNAL_DEPS:
-                    if dep_name not in allowed:
-                        errors.append(f"FAIL: {package_name} depends on {dep_name} (not allowed by architecture)")
+                if dep_name in ALLOWED_INTERNAL_DEPS and dep_name not in allowed:
+                    errors.append(
+                        f"FAIL: {package_name} depends on {dep_name} (not allowed by architecture)"
+                    )
 
             # Check dev-dependencies
             dev_deps = data.get("dev-dependencies", {})
             for dep_name in dev_deps:
-                if dep_name in ALLOWED_INTERNAL_DEPS:
-                    if dep_name not in allowed:
-                        errors.append(f"FAIL (dev): {package_name} depends on {dep_name} (not allowed by architecture)")
+                if dep_name in ALLOWED_INTERNAL_DEPS and dep_name not in allowed:
+                    errors.append(
+                        f"FAIL (dev): {package_name} depends on {dep_name} "
+                        "(not allowed by architecture)"
+                    )
 
         except Exception as e:
             errors.append(f"FAIL: parsing {toml_path} - {e}")

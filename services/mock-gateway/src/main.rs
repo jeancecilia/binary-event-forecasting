@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
+
 use std::str::FromStr;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
