@@ -55,6 +55,28 @@ impl Ledger {
         }
     }
 
+    /// Restore ledger from durable state.
+    pub fn restore(
+        version: u64,
+        free_cash: Cash,
+        reserved_cash: ReservedCash,
+        applied_transitions: std::collections::BTreeSet<String>,
+    ) -> Result<Self, String> {
+        let total_cash = Cash::new(free_cash.as_raw() + reserved_cash.as_raw() as i128);
+        let mut ledger = Self {
+            free_cash,
+            reserved_cash,
+            total_cash,
+            realized_pnl: SignedPnl::ZERO,
+            unrealized_pnl: SignedPnl::ZERO,
+            inventory: matching::inventory::Inventory::new(),
+            version,
+            applied_transitions,
+        };
+        ledger.verify_cash_invariant()?;
+        Ok(ledger)
+    }
+
     /// Verify the cash invariant on a candidate state.
     fn verify_candidate_cash_invariant(free: i128, res: u64, total: i128) -> Result<(), String> {
         let sum = free

@@ -6,8 +6,8 @@
     "forecast_messages_file": "forecast-messages.jsonl",
     "market_events_sha256": "052b58ab20e87b994185ad86f340fc9b6e2df9d6758eca4f97792e07d3f671b5",
     "forecast_messages_sha256": "fd20c9e3886907e3dac19804a2584b69428355646edb20b51aa2bb386d8eb529",
-    "configuration_sha256": "0000",
-    "software_build_sha256": "0000",
+    "configuration_sha256": "0416ea89aaa31839b66ed6429c16403ce3798f4c4c71aa69dad872433190d6c3",
+    "software_build_sha256": "2858b60d8d35f123c99ab8f8d4f6dbdbac631db97295fafdcc160bdbc364fe78",
     "logical_epoch": "2023-11-14T22:13:20Z",
     "expected_event_count": 1,
     "expected_forecast_count": 1

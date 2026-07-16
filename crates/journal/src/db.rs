@@ -145,3 +145,111 @@ pub fn process_forecast_receipt(
     tx.commit()?;
     Ok(protocol::enums::ReceiptStatus::AcceptedQueued)
 }
+
+pub fn commit_transition_plan(
+    conn: &mut Connection,
+    transition_id: &str,
+    entity_id: &str,
+    planned_at: &str,
+    payload_hash: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO transition_plans (transition_id, entity_id, planned_at, payload_hash) 
+         VALUES (?1, ?2, ?3, ?4)",
+        [transition_id, entity_id, planned_at, payload_hash],
+    )?;
+    Ok(())
+}
+
+pub fn commit_terminal_disposition(
+    conn: &mut Connection,
+    transition_id: &str,
+    entity_id: &str,
+    committed_at: &str,
+    final_hash: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO transition_commits (transition_id, entity_id, committed_at, final_hash) 
+         VALUES (?1, ?2, ?3, ?4)",
+        [transition_id, entity_id, committed_at, final_hash],
+    )?;
+    Ok(())
+}
+
+pub fn save_ledger_state(
+    conn: &mut Connection,
+    checkpoint_id: &str,
+    ledger_version: u64,
+    free_cash: &str,
+    reserved_cash: &str,
+    total_cash: &str,
+    created_at: &str,
+    state_hash: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO ledger_checkpoints (checkpoint_id, ledger_version, free_cash, reserved_cash, total_cash, created_at, state_hash) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        [
+            checkpoint_id,
+            &ledger_version.to_string(),
+            free_cash,
+            reserved_cash,
+            total_cash,
+            created_at,
+            state_hash,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn load_ledger_state(
+    conn: &Connection,
+) -> Result<Option<(u64, String, String, String)>, rusqlite::Error> {
+    // Returns (version, free, reserved, total)
+    let mut stmt = conn.prepare(
+        "SELECT ledger_version, free_cash, reserved_cash, total_cash 
+         FROM ledger_checkpoints 
+         ORDER BY ledger_version DESC LIMIT 1"
+    )?;
+    let mut rows = stmt.query([])?;
+    if let Some(row) = rows.next()? {
+        let version: u64 = row.get(0)?;
+        let free: String = row.get(1)?;
+        let res: String = row.get(2)?;
+        let total: String = row.get(3)?;
+        Ok(Some((version, free, res, total)))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn load_applied_transitions(
+    conn: &Connection,
+) -> Result<std::collections::BTreeSet<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT transition_id FROM transition_commits")?;
+    let mut rows = stmt.query([])?;
+    let mut applied = std::collections::BTreeSet::new();
+    while let Some(row) = rows.next()? {
+        applied.insert(row.get(0)?);
+    }
+    Ok(applied)
+}
+
+pub fn load_pending_transitions(
+    conn: &Connection,
+) -> Result<Vec<(String, String)>, rusqlite::Error> {
+    // Returns (transition_id, entity_id) of plans that have no commit.
+    let mut stmt = conn.prepare(
+        "SELECT p.transition_id, p.entity_id 
+         FROM transition_plans p
+         LEFT JOIN transition_commits c ON p.transition_id = c.transition_id
+         WHERE c.transition_id IS NULL 
+         ORDER BY p.planned_at ASC"
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut pending = Vec::new();
+    while let Some(row) = rows.next()? {
+        pending.push((row.get(0)?, row.get(1)?));
+    }
+    Ok(pending)
+}

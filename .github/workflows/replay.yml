@@ -12,10 +12,7 @@ jobs:
       - name: Build core engine
         run: cargo build --release --bin core-engine
       - name: Deterministic replay test
-        run: |
-          echo "Deterministic replay requires a golden trace fixture (Milestone 1)."
-          echo "Run: cargo run --bin core-engine -- replay --trace data/traces/golden --verify"
-          exit 1
+        run: cargo run --bin core-engine -- replay --trace data/traces/golden --verify
 
   network-isolation:
     runs-on: ubuntu-latest
@@ -23,6 +20,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Network isolation test
         run: |
-          echo "Network isolation requires seccomp profile application in container (Milestone 1)."
-          echo "See deploy/seccomp/replay-profile.json"
-          exit 1
+          docker build -t binary-event-research-core -f deploy/containers/core-engine.Dockerfile .
+          docker run --rm --network none --security-opt seccomp=deploy/seccomp/replay-profile.json binary-event-research-core replay --trace data/traces/golden --verify

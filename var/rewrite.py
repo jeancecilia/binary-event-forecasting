@@ -1,118 +1,10 @@
-//! Offline Replay Mode (SEC-001, REP-001, REP-002).
-//!
-//! The most restrictive mode. Denies AF_INET/AF_INET6, DNS resolution,
-//! and all external calls. Consumes versioned local traces only.
-//! Produces deterministic canonical hashes.
-//!
-//! Vertical slice:
-//! 1. Load one frozen market-event trace
-//! 2. Advance a deterministic logical clock
-//! 3. Construct one valid immutable market snapshot
-//! 4. Receive one forecast message over AF_UNIX
-//! 5. Validate framing, schema, sender sequence, expiry, and probability
-//! 6. Write AcceptedQueued to the durable journal
-//! 7. Transform the forecast into one deterministic simulation intent
-//! 8. Reconstruct the order book immediately before arrival
-//! 9. Execute one all-or-none simulated match
-//! 10. Write DispositionPlanned
-//! 11. Apply one idempotent ledger transition
-//! 12. Write DispositionCommitted
-//! 13. Generate a canonical final-state hash
-//! 14. Run the exact replay twice
-//! 15. Verify that both final hashes are identical
+import sys
+import os
 
-use chrono::{DateTime, Utc};
-use domain_types::{Cash, Price, Quantity, ProbabilityScaled};
-use forecast_policy::{apply_policy, ForecastPolicyConfig, PolicyContext, SizingRule};
-use journal::JournalRecord;
-use ledger::{Ledger, LedgerTransition};
-use market_state::{MarketSnapshot, PriceLevel, order_book::OrderBookBuilder};
-use matching::{immediate::match_immediate, MatchResult, VirtualMatchingState, cost_model::{CostModel, FixedBpsCostModel}};
-use protocol::{ForecastMessage, enums::FeedStatus, manifest::TraceManifest};
-use sha2::{Digest, Sha256};
-use std::fs;
-use std::path::PathBuf;
+with open(r'c:\Users\Jean\Desktop\binary_event_forecasting\services\core-engine\src\modes\replay.rs', 'r') as f:
+    content = f.read()
 
-/// Configuration for replay mode.
-#[derive(Debug, Clone)]
-pub struct ReplayConfig {
-    /// Path to the trace directory
-    pub trace_path: PathBuf,
-    /// Whether to verify determinism (run twice)
-    pub verify: bool,
-    /// Probability scale
-    pub probability_scale: u64,
-}
-
-/// Result of a replay run.
-#[derive(Debug, Clone)]
-pub struct ReplayResult {
-    /// Final canonical state hash
-    pub final_state_hash: String,
-    /// Number of events processed
-    pub events_processed: u64,
-    /// Number of forecasts processed
-    pub forecasts_processed: u64,
-    /// Number of intents simulated
-    pub intents_simulated: u64,
-    /// Number of fills
-    pub fills: u64,
-    /// Number of rejections
-    pub rejections: u64,
-    /// Any violations detected
-    pub violations: Vec<String>,
-}
-
-/// Run the core engine in offline replay mode.
-pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
-    let config = config.unwrap_or(ReplayConfig {
-        trace_path: PathBuf::from("data/traces/golden"),
-        verify: true,
-        probability_scale: 1_000_000,
-    });
-
-    tracing::info!(
-        trace_path = %config.trace_path.display(),
-        verify = config.verify,
-        "Starting offline replay mode"
-    );
-
-    // Run 1
-    let result_a = execute_replay(&config).await?;
-    tracing::info!(
-        hash = %result_a.final_state_hash,
-        events = result_a.events_processed,
-        forecasts = result_a.forecasts_processed,
-        fills = result_a.fills,
-        rejections = result_a.rejections,
-        violations = ?result_a.violations,
-        "Replay run 1 complete"
-    );
-
-    if config.verify {
-        // Run 2 - must produce identical hash
-        let result_b = execute_replay(&config).await?;
-        tracing::info!(
-            hash = %result_b.final_state_hash,
-            events = result_b.events_processed,
-            "Replay run 2 complete"
-        );
-
-        if result_a.final_state_hash != result_b.final_state_hash {
-            anyhow::bail!(
-                "REPLAY DETERMINISM FAILED: run 1 hash {} != run 2 hash {}",
-                result_a.final_state_hash,
-                result_b.final_state_hash
-            );
-        }
-        tracing::info!("Replay determinism verified: hashes match.");
-    }
-
-    Ok(())
-}
-
-/// Execute a single replay pass over the trace.
-async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
+new_execute_replay = '''async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
     let manifest_path = config.trace_path.join("manifest.json");
     let manifest_str = std::fs::read_to_string(&manifest_path)
         .map_err(|e| anyhow::anyhow!("Failed to read manifest: {e}"))?;
@@ -214,11 +106,7 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         let forecast_bytes = serde_json::to_vec(&forecast).unwrap_or_default();
         let forecast_len = (forecast_bytes.len() as u32).to_be_bytes();
         
-        #[cfg(unix)]
         let mut socket_conn = connect_ipc(&socket_path).await?;
-        #[cfg(not(unix))]
-        let mut socket_conn = connect_ipc(&socket_path).await?; // This will bail immediately
-        
         use tokio::io::{AsyncWriteExt, AsyncReadExt};
         socket_conn.write_all(&forecast_len).await?;
         socket_conn.write_all(&forecast_bytes).await?;
@@ -337,74 +225,15 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 
     let final_state_hash = compute_final_state_hash(&ledger, &journal_records, fills, rejections, &manifest.market_events_sha256);
     Ok(ReplayResult { final_state_hash, events_processed, forecasts_processed, intents_simulated, fills, rejections, violations })
-}
+}'''
 
-/// Convert a logical clock tick to a UTC timestamp.
-/// Uses a fixed epoch for deterministic replay.
-fn logical_time_to_utc(tick: i64) -> DateTime<Utc> {
-    let epoch = DateTime::from_timestamp(1_700_000_000, 0)
-        .unwrap_or(DateTime::UNIX_EPOCH);
-    let seconds = epoch.timestamp() + tick;
-    DateTime::from_timestamp(seconds, 0).unwrap_or(epoch)
-}
-
-
-
-/// Create a journal record for the replay.
-fn create_journal_record(
-    entity_id: &str,
-    lifecycle_state: &str,
-    logical_timestamp: i64,
-    transition_id: &str,
-) -> JournalRecord {
-    JournalRecord {
-        record_id: format!("replay-record-{}", logical_timestamp),
-        entity_id: entity_id.to_string(),
-        lifecycle_state: lifecycle_state.to_string(),
-        transition_id: transition_id.to_string(),
-        logical_timestamp,
-        canonical_payload_hash: "replay-payload-hash".to_string(),
-        previous_record_hash: "replay-prev-hash".to_string(),
-        checksum: "replay-checksum".to_string(),
-        created_at_runtime: logical_time_to_utc(logical_timestamp),
-    }
-}
-
-/// Compute a deterministic final-state hash from ledger, journal, and counters.
-fn compute_final_state_hash(
-    ledger: &Ledger,
-    journal: &[JournalRecord],
-    fills: u64,
-    rejections: u64,
-    manifest_hash: &str,
-) -> String {
-    let mut hasher = Sha256::new();
-
-    hasher.update(b"manifest:");
-    hasher.update(manifest_hash.as_bytes());
-
-    hasher.update(b"ledger:");
-    let ledger_json = protocol::canonical::canonical_json(ledger).unwrap_or_else(|_| "{}".to_string());
-    hasher.update(ledger_json.as_bytes());
-
-    hasher.update(b"journal:");
-    let journal_json = protocol::canonical::canonical_json(&journal).unwrap_or_else(|_| "[]".to_string());
-    hasher.update(journal_json.as_bytes());
-
-    hasher.update(b"fills:");
-    hasher.update(fills.to_be_bytes());
-    hasher.update(b"rejections:");
-    hasher.update(rejections.to_be_bytes());
-
-    hex::encode(hasher.finalize())
-}
-
-#[cfg(unix)]
-async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixStream> {
-    Ok(tokio::net::UnixStream::connect(path).await?)
-}
-
-#[cfg(not(unix))]
-async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::TcpStream> {
-    anyhow::bail!("Unix strictly required for IPC");
-}
+start_idx = content.find('async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {')
+end_idx = content.find('fn logical_time_to_utc(tick: i64) -> DateTime<Utc> {')
+if start_idx != -1 and end_idx != -1:
+    end_idx = content.rfind('/// Convert a logical clock tick', start_idx, end_idx)
+    updated_content = content[:start_idx] + new_execute_replay + '\n\n' + content[end_idx:]
+    with open(r'c:\Users\Jean\Desktop\binary_event_forecasting\services\core-engine\src\modes\replay.rs', 'w') as f:
+        f.write(updated_content)
+    print('SUCCESS')
+else:
+    print('FAILED TO FIND INDICES')

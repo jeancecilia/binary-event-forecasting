@@ -46,14 +46,22 @@ impl IpcServer {
     #[cfg(unix)]
     pub async fn run(&self) -> anyhow::Result<()> {
         use tokio::net::UnixListener;
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
+        use std::os::unix::fs::FileTypeExt;
+        
         tracing::info!(
             "IPC server starting on {}",
             self.socket_path.display()
         );
 
         if self.socket_path.exists() {
+            let meta = std::fs::symlink_metadata(&self.socket_path)?;
+            if !meta.file_type().is_socket() {
+                anyhow::bail!("Configured IPC path exists and is not a socket.");
+            }
+            // In a real system, we might also verify ownership here:
+            // use std::os::unix::fs::MetadataExt;
+            // if meta.uid() != unsafe { libc::geteuid() } { anyhow::bail!("Socket owned by different user"); }
+            
             std::fs::remove_file(&self.socket_path)?;
         }
 
@@ -67,7 +75,7 @@ impl IpcServer {
         }
 
         loop {
-            let (mut socket, _) = listener.accept().await?;
+            let (socket, _) = listener.accept().await?;
             Self::handle_connection(
                 socket,
                 self.idle_timeout_ms,
@@ -81,40 +89,35 @@ impl IpcServer {
 
     #[cfg(not(unix))]
     pub async fn run(&self) -> anyhow::Result<()> {
-        use tokio::net::TcpListener;
-        
-        tracing::info!(
-            "IPC server starting on 127.0.0.1:0 (Windows TCP fallback)"
-        );
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        
-        // Write the bound port to a file so the client can find it
-        std::fs::write(&self.socket_path, listener.local_addr()?.port().to_string())?;
-
-        loop {
-            let (mut socket, _) = listener.accept().await?;
-            Self::handle_connection(
-                socket,
-                self.idle_timeout_ms,
-                self.max_frame_bytes,
-                self.read_timeout_ms,
-                self.probability_scale,
-                self.db_path.clone()
-            ).await;
-        }
+        anyhow::bail!("IPC server requires AF_UNIX. Windows is strictly not supported for this core component.");
     }
 
-    async fn handle_connection<S>(
-        mut socket: S,
+    #[cfg(unix)]
+    async fn handle_connection(
+        mut socket: tokio::net::UnixStream,
         idle_timeout_ms: u64,
         max_frame_bytes: usize,
         read_timeout_ms: u64,
         probability_scale: u64,
         db_path: std::path::PathBuf,
-    ) where
-        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-    {
+    ) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        
+        // Peer credential authentication
+        match socket.peer_cred() {
+            Ok(cred) => {
+                let current_uid = unsafe { libc::geteuid() };
+                if cred.uid() != current_uid {
+                    tracing::error!("Unauthorized peer UID: {}. Expected: {}", cred.uid(), current_uid);
+                    return;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to get peer credentials: {}", e);
+                return;
+            }
+        }
+
         let mut header = [0u8; FRAME_HEADER_SIZE];
         if let Ok(n) = tokio::time::timeout(
             std::time::Duration::from_millis(idle_timeout_ms),
