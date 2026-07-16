@@ -119,9 +119,14 @@ impl ForecastMessage {
                 got: self.schema_version,
             });
         }
-        
-        if self.message_id.is_empty() || self.sender_instance_id.is_empty() || self.market_id.is_empty() {
-            return Err(ForecastValidationError::MissingField { field: "ID fields cannot be empty".into() });
+
+        if self.message_id.is_empty()
+            || self.sender_instance_id.is_empty()
+            || self.market_id.is_empty()
+        {
+            return Err(ForecastValidationError::MissingField {
+                field: "ID fields cannot be empty".into(),
+            });
         }
 
         // Validate probability bounds invariant

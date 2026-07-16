@@ -70,13 +70,11 @@ impl ReservedCash {
 
     /// Checked addition.
     pub fn checked_add(&self, other: &ReservedCash) -> Result<ReservedCash, DomainError> {
-        checked::checked_add_u64(self.0, other.0, "ReservedCash")
-            .map(ReservedCash)
+        checked::checked_add_u64(self.0, other.0, "ReservedCash").map(ReservedCash)
     }
 
     /// Checked subtraction.
     pub fn checked_sub(&self, other: &ReservedCash) -> Result<ReservedCash, DomainError> {
-        checked::checked_sub_u64(self.0, other.0, "ReservedCash")
-            .map(ReservedCash)
+        checked::checked_sub_u64(self.0, other.0, "ReservedCash").map(ReservedCash)
     }
 }

@@ -2,9 +2,9 @@
 //!
 //! Sent by the Rust core to acknowledge receipt of a forecast message.
 
+use crate::enums::ReceiptStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::enums::ReceiptStatus;
 
 /// Acknowledgement of forecast message receipt.
 #[derive(Debug, Clone, Serialize, Deserialize)]

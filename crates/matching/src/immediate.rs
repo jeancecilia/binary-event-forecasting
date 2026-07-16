@@ -3,10 +3,10 @@
 //! The matcher builds a fill-plan first, validates everything against
 //! a candidate state, then commits atomically. No partial state mutation.
 
+use super::{cost_model::CostModel, virtual_depth::DepthKey, MatchResult, VirtualMatchingState};
 use domain_types::{Cash, DomainError, Notional, Price, Quantity, ReservedCash};
 use market_state::MarketSnapshot;
-use protocol::{SimulationIntent, enums::BookSide};
-use super::{MatchResult, VirtualMatchingState, virtual_depth::DepthKey, cost_model::CostModel};
+use protocol::{enums::BookSide, SimulationIntent};
 
 /// A pre-validated fill plan with per-level quantities.
 #[derive(Debug, Clone)]
@@ -50,18 +50,25 @@ pub fn match_immediate(
     let required_quantity = Quantity::from_raw(intent.quantity);
     let is_buy = matches!(intent.book_side, BookSide::Bid);
 
-
-
-    let fill_plan = match build_fill_plan(intent, snapshot, &required_quantity, &state.virtual_depth) {
-        Ok(plan) => plan,
-        Err(e) => return MatchResult::Rejected { reason: e.to_string() },
-    };
+    let fill_plan =
+        match build_fill_plan(intent, snapshot, &required_quantity, &state.virtual_depth) {
+            Ok(plan) => plan,
+            Err(e) => {
+                return MatchResult::Rejected {
+                    reason: e.to_string(),
+                }
+            }
+        };
 
     let mut candidate = state.clone();
-    
+
     let cash_required = match cost_model.calculate_total_cash(fill_plan.notional) {
         Ok(c) => c,
-        Err(e) => return MatchResult::Rejected { reason: format!("Cost model error: {e}") },
+        Err(e) => {
+            return MatchResult::Rejected {
+                reason: format!("Cost model error: {e}"),
+            }
+        }
     };
 
     let inv_key = crate::inventory::InventoryKey {
@@ -76,7 +83,8 @@ pub fn match_immediate(
             return MatchResult::Rejected {
                 reason: format!(
                     "Insufficient cash: available={}, required={}",
-                    candidate.free_cash.as_raw(), cash_required.as_raw()
+                    candidate.free_cash.as_raw(),
+                    cash_required.as_raw()
                 ),
             };
         }
@@ -85,7 +93,8 @@ pub fn match_immediate(
             return MatchResult::Rejected {
                 reason: format!(
                     "Insufficient inventory: available={}, required={}",
-                    inv_line.free.as_raw(), fill_plan.filled_quantity.as_raw()
+                    inv_line.free.as_raw(),
+                    fill_plan.filled_quantity.as_raw()
                 ),
             };
         }
@@ -98,10 +107,7 @@ pub fn match_immediate(
             &level.available_quantity,
         ) {
             return MatchResult::Rejected {
-                reason: format!(
-                    "Virtual depth exceeded at {:?}",
-                    level.depth_key
-                ),
+                reason: format!("Virtual depth exceeded at {:?}", level.depth_key),
             };
         }
     }
@@ -109,24 +115,41 @@ pub fn match_immediate(
     if is_buy {
         candidate.free_cash = match candidate.free_cash.checked_sub(&cash_required) {
             Ok(c) => c,
-            Err(e) => return MatchResult::Rejected { reason: e.to_string() },
+            Err(e) => {
+                return MatchResult::Rejected {
+                    reason: e.to_string(),
+                }
+            }
         };
-        candidate.reserved_cash = match candidate.reserved_cash.checked_add(
-            &ReservedCash::new(cash_required.as_raw() as u64),
-        ) {
+        candidate.reserved_cash = match candidate
+            .reserved_cash
+            .checked_add(&ReservedCash::new(cash_required.as_raw() as u64))
+        {
             Ok(r) => r,
-            Err(e) => return MatchResult::Rejected { reason: e.to_string() },
+            Err(e) => {
+                return MatchResult::Rejected {
+                    reason: e.to_string(),
+                }
+            }
         };
     } else {
         inv_line.free = match inv_line.free.checked_sub(&fill_plan.filled_quantity) {
             Ok(c) => c,
-            Err(e) => return MatchResult::Rejected { reason: e.to_string() },
+            Err(e) => {
+                return MatchResult::Rejected {
+                    reason: e.to_string(),
+                }
+            }
         };
         inv_line.reserved = match inv_line.reserved.checked_add(&fill_plan.filled_quantity) {
             Ok(r) => r,
-            Err(e) => return MatchResult::Rejected { reason: e.to_string() },
+            Err(e) => {
+                return MatchResult::Rejected {
+                    reason: e.to_string(),
+                }
+            }
         };
-        
+
         if let Err(e) = candidate.inventory.insert_line(inv_key, inv_line) {
             return MatchResult::Rejected { reason: e };
         }
@@ -155,7 +178,11 @@ pub fn match_immediate(
         average_price: fill_plan.average_price,
         notional: fill_plan.notional,
         cash_reserved: if is_buy { cash_required } else { Cash::new(0) },
-        inventory_reserved: if is_buy { Quantity::ZERO } else { fill_plan.filled_quantity },
+        inventory_reserved: if is_buy {
+            Quantity::ZERO
+        } else {
+            fill_plan.filled_quantity
+        },
     }
 }
 
@@ -167,7 +194,11 @@ fn build_fill_plan(
 ) -> Result<FillPlan, DomainError> {
     let is_buy = matches!(intent.book_side, BookSide::Bid);
     let price_limit = Price::from_raw(intent.price_limit);
-    let levels = if is_buy { &snapshot.asks } else { &snapshot.bids };
+    let levels = if is_buy {
+        &snapshot.asks
+    } else {
+        &snapshot.bids
+    };
     let book_side = if is_buy { BookSide::Ask } else { BookSide::Bid };
 
     let mut remaining = required.as_raw();
@@ -206,13 +237,20 @@ fn build_fill_plan(
 
         let contribution = (level.price.as_raw() as u128)
             .checked_mul(take as u128)
-            .ok_or(DomainError::Overflow { detail: "Weighted price overflow".to_string() })?;
-        weighted_price_sum = weighted_price_sum
-            .checked_add(contribution)
-            .ok_or(DomainError::Overflow { detail: "Weighted sum overflow".to_string() })?;
+            .ok_or(DomainError::Overflow {
+                detail: "Weighted price overflow".to_string(),
+            })?;
+        weighted_price_sum =
+            weighted_price_sum
+                .checked_add(contribution)
+                .ok_or(DomainError::Overflow {
+                    detail: "Weighted sum overflow".to_string(),
+                })?;
         total_filled = total_filled
             .checked_add(take)
-            .ok_or(DomainError::Overflow { detail: "Fill quantity overflow".to_string() })?;
+            .ok_or(DomainError::Overflow {
+                detail: "Fill quantity overflow".to_string(),
+            })?;
         remaining = remaining.saturating_sub(take);
         if remaining == 0 {
             break;
@@ -220,7 +258,9 @@ fn build_fill_plan(
     }
 
     if total_filled == 0 {
-        return Err(DomainError::DivisionByZero { detail: "No quantity filled".to_string() });
+        return Err(DomainError::DivisionByZero {
+            detail: "No quantity filled".to_string(),
+        });
     }
 
     if remaining != 0 {
@@ -233,17 +273,26 @@ fn build_fill_plan(
     let half_scale = domain_types::PRICE_SCALE as u128 / 2;
     let notional_raw = (weighted_price_sum + half_scale) / (domain_types::PRICE_SCALE as u128);
     if notional_raw > u64::MAX as u128 {
-        return Err(DomainError::Overflow { detail: "Notional exceeds u64".to_string() });
+        return Err(DomainError::Overflow {
+            detail: "Notional exceeds u64".to_string(),
+        });
     }
     let notional = Notional::from_raw(notional_raw as u64);
 
     let half = total_filled as u128 / 2;
     let avg_price_raw = (weighted_price_sum + half) / total_filled as u128;
     if avg_price_raw > u64::MAX as u128 {
-        return Err(DomainError::Overflow { detail: "Avg price exceeds u64".to_string() });
+        return Err(DomainError::Overflow {
+            detail: "Avg price exceeds u64".to_string(),
+        });
     }
     let average_price = Price::from_raw(avg_price_raw as u64);
     let filled_qty = Quantity::from_raw(total_filled);
 
-    Ok(FillPlan { filled_quantity: filled_qty, average_price, notional, level_fills })
+    Ok(FillPlan {
+        filled_quantity: filled_qty,
+        average_price,
+        notional,
+        level_fills,
+    })
 }

@@ -31,10 +31,7 @@ impl Notional {
         let product = price_raw
             .checked_mul(quantity_raw)
             .ok_or_else(|| DomainError::Overflow {
-                detail: format!(
-                    "Notional overflow: {} × {}",
-                    price_raw, quantity_raw
-                ),
+                detail: format!("Notional overflow: {} × {}", price_raw, quantity_raw),
             })?;
 
         // Round to nearest: add PRICE_SCALE/2 before division

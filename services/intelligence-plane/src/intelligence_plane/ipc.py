@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import socket
 import struct
+from typing import Any
 
 MAX_SIGNAL_FRAME_BYTES = 1_048_576  # 1 MiB
 FRAME_HEADER_SIZE = 4
@@ -27,11 +28,11 @@ class IpcClient:
 
     def connect(self) -> None:
         """Connect to the Rust core engine socket."""
-        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock = socket.socket(getattr(socket, "AF_UNIX", socket.AF_INET), socket.SOCK_STREAM)  # type: ignore
         self._sock.settimeout(self.timeout)
         self._sock.connect(self.socket_path)
 
-    def send(self, payload: dict) -> dict:
+    def send(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Send a framed message and receive the response."""
         if self._sock is None:
             self.connect()

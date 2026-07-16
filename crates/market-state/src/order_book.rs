@@ -5,8 +5,8 @@ use protocol::enums::FeedStatus;
 use protocol::market_event::{MarketEvent, MarketEventType};
 use serde_json::Value;
 
-pub use super::PriceLevel;
 use super::MarketSnapshot;
+pub use super::PriceLevel;
 
 /// Builds an immutable MarketSnapshot from incremental events.
 #[derive(Debug)]
@@ -46,7 +46,8 @@ impl OrderBookBuilder {
         let mut sorted_events = events.to_vec();
         // Deterministic sort: logical_timestamp -> source_sequence -> event_type -> event_id
         sorted_events.sort_by(|a, b| {
-            a.logical_timestamp.cmp(&b.logical_timestamp)
+            a.logical_timestamp
+                .cmp(&b.logical_timestamp)
                 .then(a.source_sequence.cmp(&b.source_sequence))
                 .then((a.event_type as u8).cmp(&(b.event_type as u8)))
                 .then(a.event_id.cmp(&b.event_id))
@@ -66,10 +67,16 @@ impl OrderBookBuilder {
         if let Some(seq) = ev.source_sequence {
             if let Some(expected) = self.expected_sequence {
                 if seq > expected {
-                    return Err(format!("Sequence gap detected: expected {}, got {}", expected, seq));
+                    return Err(format!(
+                        "Sequence gap detected: expected {}, got {}",
+                        expected, seq
+                    ));
                 }
                 if seq < expected {
-                    return Err(format!("Sequence regression detected: expected {}, got {}", expected, seq));
+                    return Err(format!(
+                        "Sequence regression detected: expected {}, got {}",
+                        expected, seq
+                    ));
                 }
             }
             self.expected_sequence = Some(seq + 1);
@@ -99,13 +106,25 @@ impl OrderBookBuilder {
 
     fn parse_snapshot(&mut self, payload: &Value) -> Result<(), String> {
         // Parse bids and asks
-        let bids = payload.get("bids").and_then(Value::as_array).ok_or("Missing bids")?;
-        let asks = payload.get("asks").and_then(Value::as_array).ok_or("Missing asks")?;
+        let bids = payload
+            .get("bids")
+            .and_then(Value::as_array)
+            .ok_or("Missing bids")?;
+        let asks = payload
+            .get("asks")
+            .and_then(Value::as_array)
+            .ok_or("Missing asks")?;
 
         self.bids.clear();
         for b in bids {
-            let p = b.get("price").and_then(Value::as_u64).ok_or("Invalid bid price")?;
-            let q = b.get("quantity").and_then(Value::as_u64).ok_or("Invalid bid quantity")?;
+            let p = b
+                .get("price")
+                .and_then(Value::as_u64)
+                .ok_or("Invalid bid price")?;
+            let q = b
+                .get("quantity")
+                .and_then(Value::as_u64)
+                .ok_or("Invalid bid quantity")?;
             if q == 0 {
                 return Err("Zero quantity in bid level".to_string());
             }
@@ -119,8 +138,14 @@ impl OrderBookBuilder {
 
         self.asks.clear();
         for a in asks {
-            let p = a.get("price").and_then(Value::as_u64).ok_or("Invalid ask price")?;
-            let q = a.get("quantity").and_then(Value::as_u64).ok_or("Invalid ask quantity")?;
+            let p = a
+                .get("price")
+                .and_then(Value::as_u64)
+                .ok_or("Invalid ask price")?;
+            let q = a
+                .get("quantity")
+                .and_then(Value::as_u64)
+                .ok_or("Invalid ask quantity")?;
             if q == 0 {
                 return Err("Zero quantity in ask level".to_string());
             }
@@ -138,9 +163,9 @@ impl OrderBookBuilder {
 
     /// Construct the immutable market snapshot, validating invariants.
     pub fn build(
-        &self, 
-        logical_timestamp: i64, 
-        source_timestamp: chrono::DateTime<chrono::Utc>
+        &self,
+        logical_timestamp: i64,
+        source_timestamp: chrono::DateTime<chrono::Utc>,
     ) -> Result<MarketSnapshot, String> {
         if self.sync_status != FeedStatus::Synchronized {
             return Err("Cannot build from non-synchronized state".into());

@@ -15,6 +15,9 @@ impl SettlementResult {
     /// Returns true if this outcome is eligible for primary binary forecasting scores.
     pub fn is_scorable(&self) -> bool {
         self.resolution_status == ResolutionStatus::Final
-            && matches!(self.terminal_outcome, TerminalOutcome::Yes | TerminalOutcome::No)
+            && matches!(
+                self.terminal_outcome,
+                TerminalOutcome::Yes | TerminalOutcome::No
+            )
     }
 }

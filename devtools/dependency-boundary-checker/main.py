@@ -2,7 +2,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-ALLOWED_INTERNAL_DEPS = {
+ALLOWED_INTERNAL_DEPS: dict[str, set[str]] = {
     "domain-types": set(),
     "protocol": {"domain-types"},
     "market-state": {"domain-types", "protocol"},
@@ -19,7 +19,7 @@ ALLOWED_INTERNAL_DEPS = {
 
 
 def check_dependencies():
-    errors = []
+    errors: list[str] = []
     workspace_root = Path(__file__).parent.parent.parent
     for toml_path in workspace_root.rglob("Cargo.toml"):
         if "target" in toml_path.parts:

@@ -44,9 +44,7 @@ fn sort_json_keys(value: &Value) -> Value {
             }
             Value::Object(sorted)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.iter().map(sort_json_keys).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.iter().map(sort_json_keys).collect()),
         other => other.clone(),
     }
 }

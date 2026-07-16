@@ -2,9 +2,9 @@
 //!
 //! Terminal lifecycle state for a forecast message after processing.
 
+use crate::enums::DispositionStatus;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::enums::DispositionStatus;
 
 /// Terminal disposition of a forecast message.
 #[derive(Debug, Clone, Serialize, Deserialize)]

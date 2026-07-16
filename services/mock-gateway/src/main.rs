@@ -38,7 +38,8 @@ async fn main() -> anyhow::Result<()> {
     hasher.update(&config_content);
     config.config_hash = hex::encode(hasher.finalize());
 
-    config.validate_environment()
+    config
+        .validate_environment()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let bind = validate_local_bind(&config.bind_address)?;
@@ -81,9 +82,9 @@ fn validate_local_bind(address: &str) -> anyhow::Result<LocalBind> {
 
     // Try "localhost:PORT" — resolve to 127.0.0.1 without DNS
     if let Some(port_str) = address.strip_prefix("localhost:") {
-        let port: u16 = port_str.parse().map_err(|_| {
-            anyhow::anyhow!("Invalid port in '{}'", address)
-        })?;
+        let port: u16 = port_str
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid port in '{}'", address))?;
         return Ok(LocalBind::Tcp(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             port,
@@ -92,9 +93,9 @@ fn validate_local_bind(address: &str) -> anyhow::Result<LocalBind> {
 
     // Try "ipv6-localhost:PORT" (::1 representation)
     if let Some(port_str) = address.strip_prefix("[::1]:") {
-        let port: u16 = port_str.parse().map_err(|_| {
-            anyhow::anyhow!("Invalid port in '{}'", address)
-        })?;
+        let port: u16 = port_str
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid port in '{}'", address))?;
         return Ok(LocalBind::Tcp(SocketAddr::new(
             IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
             port,

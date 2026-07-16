@@ -3,15 +3,15 @@
 //! Owns canonical order books, immutable market snapshots, feed integrity tracking,
 //! and resynchronization logic. All observable market state flows through this crate.
 
+pub mod depth;
+pub mod feed;
 pub mod order_book;
 pub mod snapshot;
-pub mod feed;
-pub mod depth;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use domain_types::{Price, Quantity};
 use protocol::enums::FeedStatus;
+use serde::{Deserialize, Serialize};
 
 /// A price level in the order book.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,15 +62,18 @@ impl MarketSnapshot {
     /// Q_available_buy(p_L) = sum_{p ≤ p_L} q_ask(p)
     ///
     /// Returns an error if the sum overflows u64.
-    pub fn available_buy_quantity(&self, price_limit: &Price) -> Result<Quantity, domain_types::DomainError> {
+    pub fn available_buy_quantity(
+        &self,
+        price_limit: &Price,
+    ) -> Result<Quantity, domain_types::DomainError> {
         let mut total: u64 = 0;
         for level in &self.asks {
             if level.price <= *price_limit {
-                total = total
-                    .checked_add(level.quantity.as_raw())
-                    .ok_or(domain_types::DomainError::Overflow {
+                total = total.checked_add(level.quantity.as_raw()).ok_or(
+                    domain_types::DomainError::Overflow {
                         detail: "Buy quantity sum overflow".to_string(),
-                    })?;
+                    },
+                )?;
             }
         }
         Ok(Quantity::from_raw(total))
@@ -80,15 +83,18 @@ impl MarketSnapshot {
     /// Q_available_sell(p_L) = sum_{p ≥ p_L} q_bid(p)
     ///
     /// Returns an error if the sum overflows u64.
-    pub fn available_sell_quantity(&self, price_limit: &Price) -> Result<Quantity, domain_types::DomainError> {
+    pub fn available_sell_quantity(
+        &self,
+        price_limit: &Price,
+    ) -> Result<Quantity, domain_types::DomainError> {
         let mut total: u64 = 0;
         for level in &self.bids {
             if level.price >= *price_limit {
-                total = total
-                    .checked_add(level.quantity.as_raw())
-                    .ok_or(domain_types::DomainError::Overflow {
+                total = total.checked_add(level.quantity.as_raw()).ok_or(
+                    domain_types::DomainError::Overflow {
                         detail: "Sell quantity sum overflow".to_string(),
-                    })?;
+                    },
+                )?;
             }
         }
         Ok(Quantity::from_raw(total))

@@ -5,14 +5,13 @@
 //! market books. It performs all-or-none immediate matching and passive
 //! queue lifecycle simulation under conservative assumptions.
 
+pub mod cost_model;
 pub mod immediate;
+pub mod inventory;
 pub mod passive_queue;
 pub mod virtual_depth;
-pub mod cost_model;
-pub mod inventory;
 
 use domain_types::{Cash, Notional, Price, Quantity, ReservedCash};
-
 
 /// Result of a matching operation.
 #[derive(Debug, Clone)]
@@ -87,6 +86,4 @@ impl VirtualMatchingState {
         }
         Ok(())
     }
-
-
 }

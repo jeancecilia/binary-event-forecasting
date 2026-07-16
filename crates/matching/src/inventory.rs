@@ -67,7 +67,7 @@ impl Inventory {
     pub fn get_line(&self, key: &InventoryKey) -> InventoryLine {
         self.lines.get(key).cloned().unwrap_or_default()
     }
-    
+
     pub fn insert_line(&mut self, key: InventoryKey, line: InventoryLine) -> Result<(), String> {
         line.verify_invariant()?;
         self.lines.insert(key, line);

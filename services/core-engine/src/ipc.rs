@@ -45,13 +45,10 @@ impl IpcServer {
 
     #[cfg(unix)]
     pub async fn run(&self) -> anyhow::Result<()> {
-        use tokio::net::UnixListener;
         use std::os::unix::fs::FileTypeExt;
-        
-        tracing::info!(
-            "IPC server starting on {}",
-            self.socket_path.display()
-        );
+        use tokio::net::UnixListener;
+
+        tracing::info!("IPC server starting on {}", self.socket_path.display());
 
         if self.socket_path.exists() {
             let meta = std::fs::symlink_metadata(&self.socket_path)?;
@@ -59,15 +56,15 @@ impl IpcServer {
                 anyhow::bail!("Configured IPC path exists and is not a socket.");
             }
             use std::os::unix::fs::MetadataExt;
-            if meta.uid() != rustix::process::geteuid().as_raw() { 
-                anyhow::bail!("Socket owned by different user"); 
+            if meta.uid() != rustix::process::geteuid().as_raw() {
+                anyhow::bail!("Socket owned by different user");
             }
-            
+
             std::fs::remove_file(&self.socket_path)?;
         }
 
         let listener = UnixListener::bind(&self.socket_path)?;
-        
+
         // Try to set permissions on UNIX
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&self.socket_path)?.permissions();
@@ -82,8 +79,9 @@ impl IpcServer {
                 self.max_frame_bytes,
                 self.read_timeout_ms,
                 self.probability_scale,
-                self.db_path.clone()
-            ).await;
+                self.db_path.clone(),
+            )
+            .await;
         }
     }
 
@@ -102,13 +100,17 @@ impl IpcServer {
         db_path: std::path::PathBuf,
     ) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        
+
         // Peer credential authentication
         match socket.peer_cred() {
             Ok(cred) => {
                 let current_uid = rustix::process::geteuid().as_raw();
                 if cred.uid() != current_uid {
-                    tracing::error!("Unauthorized peer UID: {}. Expected: {}", cred.uid(), current_uid);
+                    tracing::error!(
+                        "Unauthorized peer UID: {}. Expected: {}",
+                        cred.uid(),
+                        current_uid
+                    );
                     return;
                 }
             }
@@ -121,8 +123,10 @@ impl IpcServer {
         let mut header = [0u8; FRAME_HEADER_SIZE];
         if let Ok(n) = tokio::time::timeout(
             std::time::Duration::from_millis(idle_timeout_ms),
-            socket.read_exact(&mut header)
-        ).await {
+            socket.read_exact(&mut header),
+        )
+        .await
+        {
             match n {
                 Ok(_) => {
                     let len = u32::from_be_bytes(header) as usize;
@@ -130,12 +134,14 @@ impl IpcServer {
                         tracing::error!("Invalid frame length: {} bytes", len);
                         return;
                     }
-                    
+
                     let mut payload = vec![0u8; len];
                     if let Ok(Ok(_)) = tokio::time::timeout(
                         std::time::Duration::from_millis(read_timeout_ms),
-                        socket.read_exact(&mut payload)
-                    ).await {
+                        socket.read_exact(&mut payload),
+                    )
+                    .await
+                    {
                         // Deserialize & Validate
                         match serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
                             Ok(msg) => {
@@ -146,19 +152,26 @@ impl IpcServer {
 
                                 if status == protocol::enums::ReceiptStatus::AcceptedQueued {
                                     if let Ok(hash) = protocol::canonical::canonical_hash(&msg) {
-                                        if let Ok(mut conn) = journal::db::open_journal(db_path.to_str().unwrap()) {
-                                            let timestamp = msg.forecast_emitted_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-                                            if let Ok(db_status) = journal::db::process_forecast_receipt(
-                                                &mut conn,
-                                                &msg.message_id,
-                                                &msg.sender_instance_id,
-                                                msg.sender_sequence,
-                                                &hash,
-                                                &timestamp
-                                            ) {
+                                        if let Ok(mut conn) =
+                                            journal::db::open_journal(db_path.to_str().unwrap())
+                                        {
+                                            let timestamp = msg
+                                                .forecast_emitted_at
+                                                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                                            if let Ok(db_status) =
+                                                journal::db::process_forecast_receipt(
+                                                    &mut conn,
+                                                    &msg.message_id,
+                                                    &msg.sender_instance_id,
+                                                    msg.sender_sequence,
+                                                    &hash,
+                                                    &timestamp,
+                                                )
+                                            {
                                                 status = db_status;
                                             } else {
-                                                status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                                status =
+                                                    protocol::enums::ReceiptStatus::CoreDegraded;
                                             }
                                         } else {
                                             status = protocol::enums::ReceiptStatus::CoreDegraded;
@@ -167,7 +180,7 @@ impl IpcServer {
                                         status = protocol::enums::ReceiptStatus::RejectedSchema;
                                     }
                                 }
-                                
+
                                 let receipt_id = format!("receipt-{}", msg.message_id);
                                 let receipt = protocol::ReceiptAcknowledgement {
                                     schema_version: 1,
@@ -177,7 +190,7 @@ impl IpcServer {
                                     receipt_id,
                                     detail: None,
                                 };
-                                
+
                                 if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
                                     let resp_len = (resp_bytes.len() as u32).to_be_bytes();
                                     let _ = socket.write_all(&resp_len).await;

@@ -3,9 +3,9 @@
 //! A simulation_intent is immutable and deterministically derived
 //! from a forecast message via the versioned forecast-to-intent policy.
 
+use crate::enums::{BookSide, OrderClass, OutcomeSide, TimeInForce};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::enums::{BookSide, OrderClass, OutcomeSide, TimeInForce};
 
 /// An immutable simulation intent derived from a forecast message.
 #[derive(Debug, Clone, Serialize, Deserialize)]

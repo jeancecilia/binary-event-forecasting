@@ -32,11 +32,11 @@ impl CostModel for FixedBpsCostModel {
             .ok_or("Fee calculation overflow")?
             .checked_div(10000)
             .ok_or("Fee division by zero")?; // Actually won't happen because divisor is 10000
-            
+
         let total_cash = gross_cash
             .checked_add(fee)
             .ok_or("Total cash calculation overflow")?;
-            
+
         Ok(Cash::new(total_cash as i128))
     }
 }

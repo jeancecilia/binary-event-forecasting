@@ -41,18 +41,10 @@ impl VirtualDepth {
 
     /// Check if consuming additional quantity at a depth key would exceed available.
     /// Uses checked arithmetic.
-    pub fn can_consume(
-        &self,
-        key: &DepthKey,
-        requested: &Quantity,
-        available: &Quantity,
-    ) -> bool {
-        let already = self
-            .consumed
-            .get(key)
-            .map(|q| q.as_raw())
-            .unwrap_or(0);
-        already.checked_add(requested.as_raw())
+    pub fn can_consume(&self, key: &DepthKey, requested: &Quantity, available: &Quantity) -> bool {
+        let already = self.consumed.get(key).map(|q| q.as_raw()).unwrap_or(0);
+        already
+            .checked_add(requested.as_raw())
             .map(|total| total <= available.as_raw())
             .unwrap_or(false)
     }
@@ -64,27 +56,29 @@ impl VirtualDepth {
         quantity: &Quantity,
         available: &Quantity,
     ) -> Result<(), String> {
-        let already = self
-            .consumed
-            .get(key)
-            .map(|q| q.as_raw())
-            .unwrap_or(0);
+        let already = self.consumed.get(key).map(|q| q.as_raw()).unwrap_or(0);
 
-        let new_total = already
-            .checked_add(quantity.as_raw())
-            .ok_or_else(|| format!(
+        let new_total = already.checked_add(quantity.as_raw()).ok_or_else(|| {
+            format!(
                 "Virtual depth overflow at {:?}: {} + {}",
-                key, already, quantity.as_raw()
-            ))?;
+                key,
+                already,
+                quantity.as_raw()
+            )
+        })?;
 
         if new_total > available.as_raw() {
             return Err(format!(
                 "Virtual depth exceeded at {:?}: consumed {} + requested {} > available {}",
-                key, already, quantity.as_raw(), available.as_raw()
+                key,
+                already,
+                quantity.as_raw(),
+                available.as_raw()
             ));
         }
 
-        self.consumed.insert(key.clone(), Quantity::from_raw(new_total));
+        self.consumed
+            .insert(key.clone(), Quantity::from_raw(new_total));
         Ok(())
     }
 

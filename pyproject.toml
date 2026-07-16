@@ -57,6 +57,10 @@ reportMissingTypeStubs = true
 reportUnknownMemberType = "error"
 reportUnknownArgumentType = "error"
 reportUnknownVariableType = "error"
+extraPaths = [
+    "python-packages/contracts-py/src",
+    "services/intelligence-plane/src"
+]
 
 [tool.pytest.ini_options]
 testpaths = ["python-packages/*/tests", "verification/tests"]

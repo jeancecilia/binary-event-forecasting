@@ -26,7 +26,10 @@ pub struct TraceManifest {
 impl TraceManifest {
     pub fn validate_schema(&self) -> Result<(), String> {
         if self.schema_version != 1 {
-            return Err(format!("Unsupported schema version: {}", self.schema_version));
+            return Err(format!(
+                "Unsupported schema version: {}",
+                self.schema_version
+            ));
         }
         Ok(())
     }

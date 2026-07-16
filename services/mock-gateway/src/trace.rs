@@ -46,11 +46,7 @@ pub struct TraceEvent {
 
 impl Trace {
     /// Create a new trace for a scenario.
-    pub fn new(
-        scenario_id: String,
-        config_hash: String,
-        build_hash: String,
-    ) -> Self {
+    pub fn new(scenario_id: String, config_hash: String, build_hash: String) -> Self {
         Self {
             trace_id: uuid::Uuid::now_v7().to_string(),
             environment: "LOCAL_MOCK_DEMO".to_string(),

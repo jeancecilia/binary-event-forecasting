@@ -85,13 +85,8 @@ pub struct UncertaintyInterval {
 
 impl UncertaintyInterval {
     /// Validate that the uncertainty interval satisfies its invariants.
-    pub fn validate(
-        &self,
-        probability: &ProbabilityScaled,
-        scale: u64,
-    ) -> Result<(), DomainError> {
-        if self.lower.as_raw() > probability.as_raw()
-            || probability.as_raw() > self.upper.as_raw()
+    pub fn validate(&self, probability: &ProbabilityScaled, scale: u64) -> Result<(), DomainError> {
+        if self.lower.as_raw() > probability.as_raw() || probability.as_raw() > self.upper.as_raw()
         {
             return Err(DomainError::OutOfRange {
                 value: format!(

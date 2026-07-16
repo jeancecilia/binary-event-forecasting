@@ -108,11 +108,13 @@ pub fn process_forecast_receipt(
     let tx = conn.transaction()?;
 
     // 1. Check if message_id exists
-    let existing_hash: Option<String> = tx.query_row(
-        "SELECT payload_hash FROM message_receipts WHERE message_id = ?1",
-        [message_id],
-        |row| row.get(0),
-    ).optional()?;
+    let existing_hash: Option<String> = tx
+        .query_row(
+            "SELECT payload_hash FROM message_receipts WHERE message_id = ?1",
+            [message_id],
+            |row| row.get(0),
+        )
+        .optional()?;
 
     if let Some(hash) = existing_hash {
         if hash == payload_hash {
@@ -231,7 +233,7 @@ pub fn load_ledger_state(
     let mut stmt = conn.prepare(
         "SELECT ledger_version, free_cash, reserved_cash, total_cash 
          FROM ledger_checkpoints 
-         ORDER BY ledger_version DESC LIMIT 1"
+         ORDER BY ledger_version DESC LIMIT 1",
     )?;
     let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
@@ -268,7 +270,7 @@ pub fn load_pending_transitions(
          FROM transition_plans p
          LEFT JOIN transition_commits c ON p.transition_id = c.transition_id
          WHERE c.transition_id IS NULL 
-         ORDER BY p.planned_at ASC"
+         ORDER BY p.planned_at ASC",
     )?;
     let mut rows = stmt.query([])?;
     let mut pending = Vec::new();

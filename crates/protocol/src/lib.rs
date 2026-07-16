@@ -16,19 +16,19 @@ pub mod enums;
 pub mod forecast;
 pub mod framing;
 pub mod intent;
+pub mod manifest;
 pub mod market_event;
 pub mod mock;
 pub mod receipt;
-pub mod manifest;
 
-pub use enums::*;
 pub use canonical::{canonical_hash, canonical_json};
+pub use disposition::LifecycleDisposition;
+pub use enums::*;
 pub use forecast::ForecastMessage;
 pub use intent::SimulationIntent;
-pub use receipt::ReceiptAcknowledgement;
-pub use disposition::LifecycleDisposition;
 pub use market_event::MarketEvent;
 pub use mock::MockGatewayMessage;
+pub use receipt::ReceiptAcknowledgement;
 
 /// Current schema version.
 pub const SCHEMA_VERSION: u32 = 1;

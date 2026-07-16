@@ -1,7 +1,7 @@
 //! Order book depth calculations (STA-003).
 
-use domain_types::{Price, Quantity};
 use super::MarketSnapshot;
+use domain_types::{Price, Quantity};
 
 /// Result of a depth check.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,7 +9,10 @@ pub enum DepthResult {
     /// Valid state with sufficient depth
     Sufficient { available: Quantity },
     /// Valid state with insufficient depth
-    InsufficientDepth { available: Quantity, required: Quantity },
+    InsufficientDepth {
+        available: Quantity,
+        required: Quantity,
+    },
     /// Invalid or stale market state
     StateInvalid { reason: String },
     /// Unobservable queue progression

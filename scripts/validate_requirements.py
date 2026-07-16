@@ -30,19 +30,9 @@ REQ_ID_RE = re.compile(r"\b([A-Z]+-\d{3})\b")
 VERIF_ID_RE = re.compile(r"\b([A-Z]+-\d{3}-V\d+)\b")
 
 
-# All Unicode categories that start with 'C' (control/format/private-use/surrogate)
-# We check for invisible characters in IDs by scanning raw text around matches
-def _has_invisible_chars(s: str) -> bool:
-    for ch in s:
-        cat = unicodedata.category(ch)
-        if cat.startswith("C"):
-            return True
-    return False
-
-
 def extract_normative_headings(text: str) -> dict[str, str]:
     """Extract REQ IDs and names from normative heading lines only."""
-    headings = {}
+    headings: dict[str, str] = {}
     for match in NORMATIVE_HEADING_RE.finditer(text):
         headings[match.group(1)] = match.group(2).strip()
     return headings

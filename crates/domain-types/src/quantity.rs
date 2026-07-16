@@ -30,14 +30,12 @@ impl Quantity {
 
     /// Checked addition.
     pub fn checked_add(&self, other: &Quantity) -> Result<Quantity, DomainError> {
-        checked::checked_add_u64(self.0, other.0, "Quantity")
-            .map(Quantity)
+        checked::checked_add_u64(self.0, other.0, "Quantity").map(Quantity)
     }
 
     /// Checked subtraction.
     pub fn checked_sub(&self, other: &Quantity) -> Result<Quantity, DomainError> {
-        checked::checked_sub_u64(self.0, other.0, "Quantity")
-            .map(Quantity)
+        checked::checked_sub_u64(self.0, other.0, "Quantity").map(Quantity)
     }
 
     /// Returns true if this quantity is sufficient for the requested amount.

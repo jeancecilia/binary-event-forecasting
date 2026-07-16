@@ -56,16 +56,16 @@ impl Ledger {
     }
 
     /// Restore ledger from durable JSON state.
-    pub fn restore_from_json(
-        json_payload: &str,
-        expected_hash: &str,
-    ) -> Result<Self, String> {
+    pub fn restore_from_json(json_payload: &str, expected_hash: &str) -> Result<Self, String> {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
         hasher.update(json_payload.as_bytes());
         let computed_hash = hex::encode(hasher.finalize());
         if computed_hash != expected_hash {
-            return Err(format!("Ledger state hash mismatch. Expected {}, got {}", expected_hash, computed_hash));
+            return Err(format!(
+                "Ledger state hash mismatch. Expected {}, got {}",
+                expected_hash, computed_hash
+            ));
         }
 
         let ledger: Self = serde_json::from_str(json_payload).map_err(|e| e.to_string())?;
@@ -100,11 +100,12 @@ impl Ledger {
     ///
     /// Returns an error on overflow rather than silently wrapping.
     pub fn increment_version(&mut self) -> Result<(), domain_types::DomainError> {
-        self.version = self.version.checked_add(1).ok_or(
-            domain_types::DomainError::Overflow {
+        self.version = self
+            .version
+            .checked_add(1)
+            .ok_or(domain_types::DomainError::Overflow {
                 detail: format!("Ledger version overflow at {}", self.version),
-            },
-        )?;
+            })?;
         Ok(())
     }
 
@@ -114,11 +115,18 @@ impl Ledger {
             return Ok(());
         }
 
-        let new_free = self.free_cash.as_raw().checked_add(transition.free_cash_delta)
+        let new_free = self
+            .free_cash
+            .as_raw()
+            .checked_add(transition.free_cash_delta)
             .ok_or("Free cash overflow")?;
-        let new_res = (self.reserved_cash.as_raw() as i128).checked_add(transition.reserved_cash_delta)
+        let new_res = (self.reserved_cash.as_raw() as i128)
+            .checked_add(transition.reserved_cash_delta)
             .ok_or("Reserved cash overflow")?;
-        let new_total = self.total_cash.as_raw().checked_add(transition.total_cash_delta)
+        let new_total = self
+            .total_cash
+            .as_raw()
+            .checked_add(transition.total_cash_delta)
             .ok_or("Total cash overflow")?;
 
         if new_free < 0 || new_res < 0 || new_total < 0 {
@@ -131,7 +139,8 @@ impl Ledger {
         self.free_cash = Cash::new(new_free);
         self.reserved_cash = ReservedCash::new(new_res as u64);
         self.total_cash = Cash::new(new_total);
-        self.applied_transitions.insert(transition.transition_id.clone());
+        self.applied_transitions
+            .insert(transition.transition_id.clone());
 
         self.increment_version().map_err(|e| e.to_string())?;
 

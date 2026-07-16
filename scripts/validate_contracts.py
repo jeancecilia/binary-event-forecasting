@@ -5,10 +5,8 @@ Validates that JSON schemas, Rust types, Python models, and golden vectors
 are consistent.
 """
 
-import sys
-import os
-import json
 from pathlib import Path
+import sys
 
 # Add python-packages/contracts-py/src to path
 repo_root = Path(__file__).resolve().parent.parent

@@ -37,26 +37,22 @@ impl Price {
 
     /// Checked addition.
     pub fn checked_add(&self, other: &Price) -> Result<Price, DomainError> {
-        checked::checked_add_u64(self.0, other.0, "Price")
-            .map(Price)
+        checked::checked_add_u64(self.0, other.0, "Price").map(Price)
     }
 
     /// Checked subtraction.
     pub fn checked_sub(&self, other: &Price) -> Result<Price, DomainError> {
-        checked::checked_sub_u64(self.0, other.0, "Price")
-            .map(Price)
+        checked::checked_sub_u64(self.0, other.0, "Price").map(Price)
     }
 
     /// Checked multiplication by a scalar.
     pub fn checked_mul_scalar(&self, scalar: u64) -> Result<Price, DomainError> {
-        checked::checked_mul_u64(self.0, scalar, "Price")
-            .map(Price)
+        checked::checked_mul_u64(self.0, scalar, "Price").map(Price)
     }
 
     /// Checked division by a scalar.
     pub fn checked_div_scalar(&self, scalar: u64) -> Result<Price, DomainError> {
-        checked::checked_div_u64(self.0, scalar, "Price")
-            .map(Price)
+        checked::checked_div_u64(self.0, scalar, "Price").map(Price)
     }
 
     /// Compare two prices.

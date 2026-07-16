@@ -1,9 +1,9 @@
 //! Passive queue lifecycle simulation (SIM-002).
 
-use domain_types::Quantity;
 use super::{MatchResult, VirtualMatchingState};
+use domain_types::Quantity;
 use market_state::MarketSnapshot;
-use protocol::{SimulationIntent, enums::BookSide};
+use protocol::{enums::BookSide, SimulationIntent};
 
 /// Acknowledge a passive intent and insert into the virtual queue.
 ///
@@ -29,7 +29,11 @@ pub fn acknowledge_passive(
     let is_buy = matches!(intent.book_side, BookSide::Bid);
 
     // Find quantity resting at this price level before insertion (checked)
-    let levels = if is_buy { &snapshot.bids } else { &snapshot.asks };
+    let levels = if is_buy {
+        &snapshot.bids
+    } else {
+        &snapshot.asks
+    };
 
     let mut resting_qty: u64 = 0;
     for level in levels.iter().filter(|l| l.price.as_raw() == price) {

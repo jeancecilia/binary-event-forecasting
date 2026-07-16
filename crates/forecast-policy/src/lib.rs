@@ -14,8 +14,8 @@
 //! Identical inputs produce bit-identical intents.
 
 use chrono::{DateTime, Utc};
-use domain_types::{Quantity, ProbabilityScaled};
-use protocol::{ForecastMessage, SimulationIntent, enums::*};
+use domain_types::{ProbabilityScaled, Quantity};
+use protocol::{enums::*, ForecastMessage, SimulationIntent};
 
 /// Context provided by the caller (logical clock or latency model).
 /// The policy must never create timestamps using `Utc::now()`.
@@ -87,11 +87,8 @@ pub fn apply_policy(
     ctx: &PolicyContext,
     probability_scale: u64,
 ) -> Result<PolicyResult, String> {
-    let calibrated = ProbabilityScaled::new(
-        forecast.calibrated_probability,
-        probability_scale,
-    )
-    .map_err(|e| format!("Invalid probability: {e}"))?;
+    let calibrated = ProbabilityScaled::new(forecast.calibrated_probability, probability_scale)
+        .map_err(|e| format!("Invalid probability: {e}"))?;
 
     // Check probability bounds invariant
     forecast.validate_probability_bounds(probability_scale)?;
@@ -117,28 +114,32 @@ pub fn apply_policy(
     }
 
     // Determine book side and outcome side from probability
-    let (book_side, outcome_side, price_limit_raw) = if calibrated.as_raw()
-        > config.probability_threshold.as_raw()
-    {
-        // High probability → buy YES
-        let price_raw = (calibrated.as_raw() as u128 * domain_types::PRICE_SCALE as u128 / probability_scale as u128) as u64;
-        (BookSide::Bid, OutcomeSide::Yes, price_raw)
-    } else if calibrated.as_raw() < probability_scale - config.probability_threshold.as_raw() {
-        // Low probability → buy NO (sell YES)
-        let price_raw = ((probability_scale - calibrated.as_raw()) as u128 * domain_types::PRICE_SCALE as u128 / probability_scale as u128) as u64;
-        (BookSide::Ask, OutcomeSide::No, price_raw)
-    } else {
-        return Ok(PolicyResult::Abstain {
-            reason: "Probability within no-trade zone".to_string(),
-        });
-    };
+    let (book_side, outcome_side, price_limit_raw) =
+        if calibrated.as_raw() > config.probability_threshold.as_raw() {
+            // High probability → buy YES
+            let price_raw = (calibrated.as_raw() as u128 * domain_types::PRICE_SCALE as u128
+                / probability_scale as u128) as u64;
+            (BookSide::Bid, OutcomeSide::Yes, price_raw)
+        } else if calibrated.as_raw() < probability_scale - config.probability_threshold.as_raw() {
+            // Low probability → buy NO (sell YES)
+            let price_raw = ((probability_scale - calibrated.as_raw()) as u128
+                * domain_types::PRICE_SCALE as u128
+                / probability_scale as u128) as u64;
+            (BookSide::Ask, OutcomeSide::No, price_raw)
+        } else {
+            return Ok(PolicyResult::Abstain {
+                reason: "Probability within no-trade zone".to_string(),
+            });
+        };
 
     let quantity = match &config.sizing_rule {
         SizingRule::FixedQuantity(q) => *q,
-        SizingRule::EdgeProportional { max_quantity, scale } => {
-            let edge = (calibrated.as_raw() as f64
-                - config.probability_threshold.as_raw() as f64)
-                .abs();
+        SizingRule::EdgeProportional {
+            max_quantity,
+            scale,
+        } => {
+            let edge =
+                (calibrated.as_raw() as f64 - config.probability_threshold.as_raw() as f64).abs();
             let proportion = (edge * scale).min(max_quantity.as_raw() as f64) as u64;
             Quantity::from_raw(proportion)
         }

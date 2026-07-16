@@ -21,8 +21,7 @@ impl Spool {
 
     /// Check if the spool has remaining capacity.
     pub fn has_capacity(&self) -> bool {
-        self.current_records < self.config.max_records
-            && self.current_bytes < self.config.max_bytes
+        self.current_records < self.config.max_records && self.current_bytes < self.config.max_bytes
     }
 
     /// Returns true if the spool is exhausted.

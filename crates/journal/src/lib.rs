@@ -9,8 +9,8 @@
 //! Supports bounded local spooling for PostgreSQL reconciliation.
 
 pub mod db;
-pub mod spool;
 pub mod recovery;
+pub mod spool;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
