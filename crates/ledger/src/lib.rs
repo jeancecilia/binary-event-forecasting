@@ -59,7 +59,14 @@ impl Ledger {
     }
 
     /// Bump the ledger version.
-    pub fn increment_version(&mut self) {
-        self.version = self.version.checked_add(1).unwrap_or(0);
+    ///
+    /// Returns an error on overflow rather than silently wrapping.
+    pub fn increment_version(&mut self) -> Result<(), domain_types::DomainError> {
+        self.version = self.version.checked_add(1).ok_or(
+            domain_types::DomainError::Overflow {
+                detail: format!("Ledger version overflow at {}", self.version),
+            },
+        )?;
+        Ok(())
     }
 }

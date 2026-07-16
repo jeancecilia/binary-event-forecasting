@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{checked, DomainError, PRICE_SCALE};
+use crate::{checked, DomainError};
 
 /// A price level represented as a scaled integer.
 ///

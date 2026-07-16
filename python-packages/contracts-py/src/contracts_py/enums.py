@@ -54,6 +54,7 @@ class TimeInForce(str, Enum):
 
 class FeedStatus(str, Enum):
     INITIALIZING = "Initializing"
+    SYNCHRONIZED = "Synchronized"
     FRAGMENTED = "Fragmented"
     DISCONNECTED = "Disconnected"
     STALE = "Stale"

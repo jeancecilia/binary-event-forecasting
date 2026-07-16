@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{checked, price::Price, quantity::Quantity, DomainError, PRICE_SCALE};
+use crate::{price::Price, quantity::Quantity, DomainError, PRICE_SCALE};
 
 /// Notional value computed from price and quantity.
 ///

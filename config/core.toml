@@ -1,0 +1,20 @@
+# Core Engine Configuration
+
+[engine]
+socket_path = "/run/binary-event-research/core.sock"
+mode = "replay"
+max_signal_frame_bytes = 1048576
+read_timeout_ms = 30000
+idle_timeout_ms = 300000
+
+[journal]
+path = "var/journal/core-journal.sqlite"
+
+[spool]
+path = "var/spool/research-store-spool.sqlite"
+max_bytes = 1073741824
+max_records = 1000000
+on_exhaustion = "HALT_STATE_CHANGING_WORK"
+
+# [postgres]
+# url = "postgresql://localhost:5432/binary_event_research"

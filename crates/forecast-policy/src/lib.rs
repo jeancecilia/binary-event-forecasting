@@ -3,9 +3,41 @@
 //! Transforms a forecast message into a deterministic simulation intent.
 //! The forecast message itself does NOT constitute a simulation intent.
 //! The transformation uses a versioned, deterministic policy.
+//!
+//! ## Determinism
+//!
+//! Timestamps come from `PolicyContext`, never from `Utc::now()`.
+//! Identical inputs produce bit-identical intents.
 
+use chrono::{DateTime, Utc};
 use domain_types::{Price, Quantity, ProbabilityScaled};
 use protocol::{ForecastMessage, SimulationIntent, enums::*};
+
+/// Context provided by the caller (logical clock or latency model).
+/// The policy must never create timestamps using `Utc::now()`.
+#[derive(Debug, Clone)]
+pub struct PolicyContext {
+    /// When the policy decision was made (logical time)
+    pub decision_timestamp: DateTime<Utc>,
+    /// Simulated arrival at the matcher (logical time)
+    pub simulated_arrival_timestamp: DateTime<Utc>,
+    /// Experiment identifier
+    pub experiment_id: String,
+    /// Input snapshot version
+    pub input_snapshot_version: String,
+    /// Account state version
+    pub account_state_version: String,
+    /// Latency scenario version
+    pub latency_scenario_version: String,
+    /// Matching model version
+    pub matching_model_version: String,
+    /// Cost model version
+    pub cost_model_version: String,
+    /// Acknowledgement latency model version
+    pub acknowledgement_latency_version: String,
+    /// Cancellation latency model version
+    pub cancellation_latency_version: String,
+}
 
 /// Configuration for the forecast-to-intent policy.
 #[derive(Debug, Clone)]
@@ -41,9 +73,13 @@ pub enum PolicyResult {
 }
 
 /// Apply the forecast-to-intent policy.
+///
+/// All timestamps come from `ctx`, ensuring deterministic output
+/// given identical forecast, config, and context.
 pub fn apply_policy(
     forecast: &ForecastMessage,
     config: &ForecastPolicyConfig,
+    ctx: &PolicyContext,
     probability_scale: u64,
 ) -> Result<PolicyResult, String> {
     let calibrated = ProbabilityScaled::new(
@@ -68,8 +104,8 @@ pub fn apply_policy(
         if uncertainty_width > threshold.as_raw() {
             return Ok(PolicyResult::Abstain {
                 reason: format!(
-                    "Uncertainty width {uncertainty_width} exceeds threshold {threshold}",
-                    threshold = threshold.as_raw()
+                    "Uncertainty width {uncertainty_width} exceeds threshold {}",
+                    threshold.as_raw()
                 ),
             });
         }
@@ -101,12 +137,11 @@ pub fn apply_policy(
         }
     };
 
-    let now = chrono::Utc::now();
-    let intent_id = compute_intent_id(forecast, config)?;
+    let intent_id = compute_intent_id(forecast, config, ctx)?;
 
     Ok(PolicyResult::Intent(SimulationIntent {
         simulation_intent_id: intent_id,
-        experiment_id: "default".to_string(), // TODO: from config
+        experiment_id: ctx.experiment_id.clone(),
         source_forecast_message_id: forecast.message_id.clone(),
         forecast_policy_version: config.version.clone(),
         configuration_hash: config.config_hash.clone(),
@@ -120,23 +155,25 @@ pub fn apply_policy(
         price_limit: price_limit_raw,
         time_in_force: TimeInForce::ImmediateOrCancel,
         policy_priority: 0,
-        decision_timestamp: now,
-        simulated_arrival_timestamp: now,
-        latency_scenario_version: "v1".to_string(),
-        matching_model_version: "v1".to_string(),
-        cost_model_version: "v1".to_string(),
-        acknowledgement_latency_version: "v1".to_string(),
-        cancellation_latency_version: "v1".to_string(),
-        account_state_version: "v1".to_string(),
-        input_snapshot_version: "v1".to_string(),
+        decision_timestamp: ctx.decision_timestamp,
+        simulated_arrival_timestamp: ctx.simulated_arrival_timestamp,
+        latency_scenario_version: ctx.latency_scenario_version.clone(),
+        matching_model_version: ctx.matching_model_version.clone(),
+        cost_model_version: ctx.cost_model_version.clone(),
+        acknowledgement_latency_version: ctx.acknowledgement_latency_version.clone(),
+        cancellation_latency_version: ctx.cancellation_latency_version.clone(),
+        account_state_version: ctx.account_state_version.clone(),
+        input_snapshot_version: ctx.input_snapshot_version.clone(),
         expires_at: forecast.expires_at,
     }))
 }
 
 /// Compute a deterministic simulation intent ID from canonical inputs.
+/// Includes all context timestamps to ensure true determinism.
 fn compute_intent_id(
     forecast: &ForecastMessage,
     config: &ForecastPolicyConfig,
+    ctx: &PolicyContext,
 ) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -144,6 +181,10 @@ fn compute_intent_id(
     hasher.update(config.version.as_bytes());
     hasher.update(config.config_hash.as_bytes());
     hasher.update(forecast.calibrated_probability.to_be_bytes());
+    // Include context to make intent ID fully deterministic
+    hasher.update(ctx.decision_timestamp.to_rfc3339().as_bytes());
+    hasher.update(ctx.simulated_arrival_timestamp.to_rfc3339().as_bytes());
+    hasher.update(ctx.experiment_id.as_bytes());
     let hash = hex::encode(hasher.finalize());
     Ok(format!("intent-{hash}"))
 }

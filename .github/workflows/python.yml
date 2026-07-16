@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v2
       - run: uv sync
-      - run: uv run pyright || true
+      - run: uv run pyright
 
   test:
     runs-on: ubuntu-latest

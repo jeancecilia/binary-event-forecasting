@@ -14,12 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v2
-      - run: uv sync
-      - run: |
+      - name: Validate JSON schemas
+        run: |
           for schema in contracts/schemas/*.json; do
             echo "Validating $schema..."
-            python -m json.tool "$schema" > /dev/null
+            python -m json.tool "$schema" > /dev/null || { echo "FAIL: Invalid JSON in $schema"; exit 1; }
           done
 
   cross-language-hash:
@@ -29,7 +28,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v2
       - run: uv sync
-      - run: uv run python scripts/validate_contracts.py
+      - name: Cross-language hash verification
+        run: |
+          echo "Cross-language golden vector tests require contract implementation (Milestone 2)."
+          exit 1
 
   golden-vectors:
     runs-on: ubuntu-latest
@@ -38,4 +40,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v2
       - run: uv sync
-      - run: echo "Golden vector tests — Milestone 2"
+      - name: Golden vector tests
+        run: |
+          echo "Golden vector tests require cross-language hash equivalence (Milestone 2)."
+          exit 1

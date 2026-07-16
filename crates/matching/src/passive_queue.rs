@@ -3,7 +3,7 @@
 use domain_types::Quantity;
 use super::{MatchResult, VirtualMatchingState};
 use market_state::MarketSnapshot;
-use protocol::SimulationIntent;
+use protocol::{SimulationIntent, enums::BookSide};
 
 /// Acknowledge a passive intent and insert into the virtual queue.
 ///
@@ -26,24 +26,22 @@ pub fn acknowledge_passive(
     }
 
     let price = intent.price_limit;
-    let is_buy = matches!(intent.book_side, protocol::enums::BookSide::Bid);
+    let is_buy = matches!(intent.book_side, BookSide::Bid);
 
-    // Find quantity resting at this price level before insertion
-    let resting_qty: u64 = if is_buy {
-        snapshot
-            .bids
-            .iter()
-            .filter(|l| l.price.as_raw() == price)
-            .map(|l| l.quantity.as_raw())
-            .sum()
-    } else {
-        snapshot
-            .asks
-            .iter()
-            .filter(|l| l.price.as_raw() == price)
-            .map(|l| l.quantity.as_raw())
-            .sum()
-    };
+    // Find quantity resting at this price level before insertion (checked)
+    let levels = if is_buy { &snapshot.bids } else { &snapshot.asks };
+
+    let mut resting_qty: u64 = 0;
+    for level in levels.iter().filter(|l| l.price.as_raw() == price) {
+        resting_qty = match resting_qty.checked_add(level.quantity.as_raw()) {
+            Some(q) => q,
+            None => {
+                return MatchResult::Rejected {
+                    reason: "Resting quantity overflow".to_string(),
+                };
+            }
+        };
+    }
 
     MatchResult::Queued {
         quantity_ahead: Quantity::from_raw(resting_qty),

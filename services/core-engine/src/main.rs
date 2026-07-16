@@ -49,31 +49,29 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    // Load configuration
-    let config = core_engine::CoreConfig::from_file(&cli.config)?;
-
-    tracing::info!(
-        mode = ?config.mode,
-        socket = %config.socket_path.display(),
-        "Core engine initializing"
-    );
-
     match cli.command.unwrap_or(Commands::Replay {
         trace: None,
-        verify: false,
+        verify: true,
     }) {
-        Commands::Replay { trace: _, verify: _ } => {
-            core_engine::modes::replay::run().await?;
+        Commands::Replay { trace, verify } => {
+            let replay_config = core_engine::modes::replay::ReplayConfig {
+                trace_path: trace.unwrap_or_else(|| std::path::PathBuf::from("data/traces/golden")),
+                verify,
+                probability_scale: 1_000_000,
+            };
+            core_engine::modes::replay::run(Some(replay_config)).await?;
         }
         Commands::Migrate => {
             tracing::info!("Running database migrations...");
             // TODO: Migration logic
         }
         Commands::Prospective => {
-            core_engine::modes::prospective::run().await?;
+            tracing::info!("Starting prospective observation mode");
+            // TODO: Implementation
         }
         Commands::Mock => {
-            core_engine::modes::mock::run().await?;
+            tracing::info!("Starting mock demo mode");
+            // TODO: Implementation
         }
     }
 

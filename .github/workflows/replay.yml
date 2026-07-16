@@ -9,11 +9,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --bin core-engine
-      - run: echo "Deterministic replay test — Milestone 1"
+      - name: Build core engine
+        run: cargo build --release --bin core-engine
+      - name: Deterministic replay test
+        run: |
+          echo "Deterministic replay requires a golden trace fixture (Milestone 1)."
+          echo "Run: cargo run --bin core-engine -- replay --trace data/traces/golden --verify"
+          exit 1
 
   network-isolation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Network isolation test — Milestone 1"
+      - name: Network isolation test
+        run: |
+          echo "Network isolation requires seccomp profile application in container (Milestone 1)."
+          echo "See deploy/seccomp/replay-profile.json"
+          exit 1

@@ -1,0 +1,12 @@
+# Mock Gateway Configuration
+
+[gateway]
+environment = "LOCAL_MOCK_DEMO"
+scenario_id = "default-scenario-v1"
+bind_address = "127.0.0.1:8080"
+
+[scenarios]
+path = "data/fixtures/scenarios/"
+
+[trace]
+path = "var/traces/mock-gateway/"

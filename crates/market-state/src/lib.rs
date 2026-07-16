@@ -53,38 +53,44 @@ pub struct MarketSnapshot {
 
 impl MarketSnapshot {
     /// Returns true if the snapshot is safe to use for matching/baseline/NAV.
+    /// Only `Synchronized` feed status is accepted.
     pub fn is_usable(&self) -> bool {
-        !matches!(
-            self.sync_status,
-            FeedStatus::Initializing
-                | FeedStatus::Fragmented
-                | FeedStatus::Disconnected
-                | FeedStatus::Stale
-                | FeedStatus::Failed
-        )
+        self.sync_status == FeedStatus::Synchronized
     }
 
-    /// Compute available buy quantity up to a price limit.
+    /// Compute available buy quantity up to a price limit, with checked arithmetic.
     /// Q_available_buy(p_L) = sum_{p ≤ p_L} q_ask(p)
-    pub fn available_buy_quantity(&self, price_limit: &Price) -> Quantity {
-        let total: u64 = self
-            .asks
-            .iter()
-            .filter(|level| level.price <= *price_limit)
-            .map(|level| level.quantity.as_raw())
-            .sum();
-        Quantity::from_raw(total)
+    ///
+    /// Returns an error if the sum overflows u64.
+    pub fn available_buy_quantity(&self, price_limit: &Price) -> Result<Quantity, domain_types::DomainError> {
+        let mut total: u64 = 0;
+        for level in &self.asks {
+            if level.price <= *price_limit {
+                total = total
+                    .checked_add(level.quantity.as_raw())
+                    .ok_or(domain_types::DomainError::Overflow {
+                        detail: "Buy quantity sum overflow".to_string(),
+                    })?;
+            }
+        }
+        Ok(Quantity::from_raw(total))
     }
 
-    /// Compute available sell quantity at or above a price limit.
+    /// Compute available sell quantity at or above a price limit, with checked arithmetic.
     /// Q_available_sell(p_L) = sum_{p ≥ p_L} q_bid(p)
-    pub fn available_sell_quantity(&self, price_limit: &Price) -> Quantity {
-        let total: u64 = self
-            .bids
-            .iter()
-            .filter(|level| level.price >= *price_limit)
-            .map(|level| level.quantity.as_raw())
-            .sum();
-        Quantity::from_raw(total)
+    ///
+    /// Returns an error if the sum overflows u64.
+    pub fn available_sell_quantity(&self, price_limit: &Price) -> Result<Quantity, domain_types::DomainError> {
+        let mut total: u64 = 0;
+        for level in &self.bids {
+            if level.price >= *price_limit {
+                total = total
+                    .checked_add(level.quantity.as_raw())
+                    .ok_or(domain_types::DomainError::Overflow {
+                        detail: "Sell quantity sum overflow".to_string(),
+                    })?;
+            }
+        }
+        Ok(Quantity::from_raw(total))
     }
 }

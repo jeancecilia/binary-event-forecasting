@@ -29,10 +29,17 @@ pub fn evaluate_depth(
         };
     }
 
-    let available = if is_buy {
+    let available = match if is_buy {
         snapshot.available_buy_quantity(price_limit)
     } else {
         snapshot.available_sell_quantity(price_limit)
+    } {
+        Ok(q) => q,
+        Err(e) => {
+            return DepthResult::StateInvalid {
+                reason: format!("Depth computation error: {e}"),
+            };
+        }
     };
 
     if available.as_raw() >= required_quantity.as_raw() {

@@ -70,7 +70,7 @@ impl ProbabilityScaled {
 /// An uncertainty interval for a probability estimate.
 ///
 /// Invariant: `0 ≤ lower ≤ probability ≤ upper ≤ ProbabilityScale`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UncertaintyInterval {
     /// Lower bound of the uncertainty interval.
     pub lower: ProbabilityScaled,

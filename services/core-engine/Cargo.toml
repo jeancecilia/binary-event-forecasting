@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "core-engine"
 path = "src/main.rs"
@@ -54,9 +57,6 @@ toml.workspace = true
 rusqlite.workspace = true
 tokio-postgres.workspace = true
 
-# Parquet
-parquet.workspace = true
-arrow.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

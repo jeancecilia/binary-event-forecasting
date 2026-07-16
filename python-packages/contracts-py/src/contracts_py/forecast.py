@@ -3,22 +3,32 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
-from pydantic import BaseModel, Field
+from typing import Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: Literal[1] = 1
 PROBABILITY_SCALE: int = 1_000_000
 
 
 class ForecastMessage(BaseModel):
-    """A forecast message from the Python intelligence plane."""
+    """A forecast message from the Python intelligence plane.
+
+    Uses strict Pydantic configuration: extra fields forbidden,
+    strict types, and immutable after creation.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        frozen=True,
+    )
 
     # Protocol identity
-    schema_version: int = Field(default=SCHEMA_VERSION)
+    schema_version: Literal[1] = SCHEMA_VERSION
     message_id: str
     sender_instance_id: str
-    sender_sequence: int
+    sender_sequence: int = Field(ge=0)
 
     # Target identity
     market_id: str
@@ -32,7 +42,7 @@ class ForecastMessage(BaseModel):
     # Source provenance
     source_id: str
     source_version: str
-    evidence_set_hash: str
+    evidence_set_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     published_at: datetime
     first_source_available_at: datetime
     ingested_at: datetime
@@ -63,11 +73,54 @@ class ForecastMessage(BaseModel):
     forecast_emitted_at: datetime
     expires_at: datetime
 
-    def validate_probability_bounds(self) -> None:
-        """Validate the probability invariant."""
-        if not (0 <= self.uncertainty_lower <= self.calibrated_probability <= self.uncertainty_upper <= PROBABILITY_SCALE):
+    @model_validator(mode="after")
+    def validate_probability_bounds(self) -> ForecastMessage:
+        """Validate the probability invariant automatically."""
+        if not (
+            0
+            <= self.uncertainty_lower
+            <= self.calibrated_probability
+            <= self.uncertainty_upper
+            <= PROBABILITY_SCALE
+        ):
             raise ValueError(
                 f"Probability invariant violated: "
                 f"0 <= {self.uncertainty_lower} <= {self.calibrated_probability} "
                 f"<= {self.uncertainty_upper} <= {PROBABILITY_SCALE}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_timestamp_order(self) -> ForecastMessage:
+        """Validate causal timestamp ordering."""
+        if self.first_source_available_at > self.decision_cutoff_at:
+            raise ValueError(
+                f"first_source_available_at ({self.first_source_available_at}) "
+                f"must be <= decision_cutoff_at ({self.decision_cutoff_at})"
+            )
+        if self.decision_cutoff_at >= self.forecast_created_at:
+            raise ValueError(
+                f"decision_cutoff_at ({self.decision_cutoff_at}) "
+                f"must be < forecast_created_at ({self.forecast_created_at})"
+            )
+        if self.forecast_created_at >= self.forecast_emitted_at:
+            raise ValueError(
+                f"forecast_created_at ({self.forecast_created_at}) "
+                f"must be < forecast_emitted_at ({self.forecast_emitted_at})"
+            )
+        if self.forecast_emitted_at >= self.expires_at:
+            raise ValueError(
+                f"forecast_emitted_at ({self.forecast_emitted_at}) "
+                f"must be < expires_at ({self.expires_at})"
+            )
+        if self.model_training_cutoff >= self.decision_cutoff_at:
+            raise ValueError(
+                f"model_training_cutoff ({self.model_training_cutoff}) "
+                f"must be < decision_cutoff_at ({self.decision_cutoff_at})"
+            )
+        if self.calibration_training_cutoff >= self.decision_cutoff_at:
+            raise ValueError(
+                f"calibration_training_cutoff ({self.calibration_training_cutoff}) "
+                f"must be < decision_cutoff_at ({self.decision_cutoff_at})"
+            )
+        return self

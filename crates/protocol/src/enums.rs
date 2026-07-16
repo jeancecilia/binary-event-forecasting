@@ -96,13 +96,22 @@ pub enum TimeInForce {
 }
 
 /// Market feed status.
+///
+/// Only `Synchronized` is safe to use for matching, baselines, or NAV valuation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum FeedStatus {
+    /// Feed is initializing — not yet usable
     Initializing,
+    /// Feed is synchronized and healthy — safe for matching
+    Synchronized,
+    /// Gap, invalid delta, or integrity failure detected
     Fragmented,
+    /// Feed connection lost
     Disconnected,
+    /// No recent updates within staleness threshold
     Stale,
+    /// Feed has failed
     Failed,
 }
 
