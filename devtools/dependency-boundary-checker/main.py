@@ -14,12 +14,28 @@ ALLOWED_INTERNAL_DEPS: dict[str, set[str]] = {
     "experiment-control": {"protocol", "domain-types"},
     "telemetry": {"protocol", "domain-types"},
     "core-engine": {
-        "domain-types", "protocol", "market-state", "forecast-policy", "matching",
-        "ledger", "journal", "replay", "experiment-control", "telemetry"
+        "domain-types",
+        "protocol",
+        "market-state",
+        "forecast-policy",
+        "matching",
+        "ledger",
+        "journal",
+        "replay",
+        "experiment-control",
+        "telemetry",
     },
     "mock-gateway": {
-        "domain-types", "protocol", "market-state", "forecast-policy", "matching",
-        "ledger", "journal", "replay", "experiment-control", "telemetry"
+        "domain-types",
+        "protocol",
+        "market-state",
+        "forecast-policy",
+        "matching",
+        "ledger",
+        "journal",
+        "replay",
+        "experiment-control",
+        "telemetry",
     },
 }
 

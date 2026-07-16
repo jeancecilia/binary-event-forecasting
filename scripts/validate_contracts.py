@@ -38,5 +38,6 @@ def main() -> int:
         print(f"Contract validation failed: {e}")
         return 1
 
+
 if __name__ == "__main__":
     sys.exit(main())
