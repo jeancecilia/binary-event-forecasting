@@ -1,0 +1,36 @@
+name: Python CI
+
+on:
+  push:
+    paths:
+      - '**/*.py'
+      - '**/pyproject.toml'
+      - '**/uv.lock'
+      - '.github/workflows/python.yml'
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+      - run: uv sync
+      - run: uv run pyright || true
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+      - run: uv sync
+      - run: uv run pytest

@@ -1,0 +1,104 @@
+# Binary Event Forecasting — Rust Workspace
+
+[workspace]
+members = [
+    # Services
+    "services/core-engine",
+    "services/mock-gateway",
+
+    # Shared crates (ordered by dependency)
+    "crates/domain-types",
+    "crates/protocol",
+    "crates/market-state",
+    "crates/forecast-policy",
+    "crates/matching",
+    "crates/ledger",
+    "crates/journal",
+    "crates/replay",
+    "crates/experiment-control",
+    "crates/telemetry",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+repository = "https://github.com/example/binary-event-research"
+rust-version = "1.80.0"
+
+[workspace.dependencies]
+# Internal crates
+domain-types = { path = "crates/domain-types" }
+protocol = { path = "crates/protocol" }
+market-state = { path = "crates/market-state" }
+forecast-policy = { path = "crates/forecast-policy" }
+matching = { path = "crates/matching" }
+ledger = { path = "crates/ledger" }
+journal = { path = "crates/journal" }
+replay = { path = "crates/replay" }
+experiment-control = { path = "crates/experiment-control" }
+telemetry = { path = "crates/telemetry" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+serde_with = { version = "3" }
+
+# Hashing
+sha2 = "0.10"
+hex = "0.4"
+
+# UUID
+uuid = { version = "1", features = ["v7", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# SQLite
+rusqlite = { version = "0.31", features = ["bundled", "vtab"] }
+
+# PostgreSQL
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Unix sockets
+tokio-stream = "0.1"
+
+# Testing
+proptest = "1"
+tempfile = "3"
+assert-json-diff = "2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+
+# Parquet / Arrow
+parquet = { version = "52", features = ["snap"] }
+arrow = { version = "52" }
+
+# DuckDB
+duckdb = { version = "1", features = ["bundled"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+disallowed_types = "deny"
+float_arithmetic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+# Allow float for uncertainty_coverage_level in protocol only

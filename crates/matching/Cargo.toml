@@ -1,0 +1,20 @@
+[package]
+name = "matching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+domain-types.workspace = true
+protocol.workspace = true
+market-state.workspace = true
+serde.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binary-event-research/schemas/receipt-status.v1.json",
+  "title": "ReceiptAcknowledgement",
+  "description": "Acknowledgement of forecast message receipt (IPC-002).",
+  "type": "object",
+  "required": ["schema_version", "message_id", "receipt_status", "timestamp", "receipt_id"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "message_id": { "type": "string" },
+    "receipt_status": {
+      "enum": [
+        "AcceptedQueued", "DuplicateRetry", "ExpiredOnArrival",
+        "RejectedSchema", "RejectedBounds", "RejectedCapacity",
+        "RejectedTargetVersion", "RejectedRateLimit",
+        "ReplaySequenceViolation", "CoreDegraded"
+      ]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "receipt_id": { "type": "string" },
+    "detail": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+name: Replay CI
+
+on:
+  pull_request:
+
+jobs:
+  deterministic-replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --bin core-engine
+      - run: echo "Deterministic replay test — Milestone 1"
+
+  network-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Network isolation test — Milestone 1"

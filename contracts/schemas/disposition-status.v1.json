@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binary-event-research/schemas/disposition-status.v1.json",
+  "title": "LifecycleDisposition",
+  "description": "Terminal lifecycle disposition of a forecast message (IPC-002).",
+  "type": "object",
+  "required": ["schema_version", "message_id", "disposition_status", "timestamp", "transition_id"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "message_id": { "type": "string" },
+    "disposition_status": {
+      "enum": [
+        "Validated", "Evaluated", "Abstained", "SimulationSubmitted",
+        "Simulated", "PartiallyFilled", "SimulationRejected",
+        "SimulationFailed", "Superseded", "Evicted", "ExpiredInQueue"
+      ]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "transition_id": { "type": "string" },
+    "detail": { "type": "string" },
+    "previous_status": {
+      "enum": [
+        "Validated", "Evaluated", "Abstained", "SimulationSubmitted",
+        "Simulated", "PartiallyFilled", "SimulationRejected",
+        "SimulationFailed", "Superseded", "Evicted", "ExpiredInQueue"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

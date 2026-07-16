@@ -1,0 +1,56 @@
+[project]
+name = "binary-event-research"
+version = "0.1.0"
+description = "Decoupled Binary-Event Forecasting and Non-Monetary Simulation System"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "UNLICENSED" }
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-xdist>=3",
+    "hypothesis>=6",
+    "ruff>=0.5",
+    "pyright>=1.1",
+    "pre-commit>=3",
+    "duckdb>=1",
+    "pyarrow>=17",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+    "TID", # flake8-tidy-imports
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["intelligence_plane", "contracts_py", "source_ingestion", "preprocessing", "inference", "calibration", "experiments", "reporting", "audit_export"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.11"
+reportMissingTypeStubs = true
+reportUnknownMemberType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownVariableType = "error"
+
+[tool.pytest.ini_options]
+testpaths = ["python-packages/*/tests", "verification/tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"

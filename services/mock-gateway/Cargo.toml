@@ -1,0 +1,55 @@
+[package]
+name = "mock-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "mock-gateway"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+domain-types.workspace = true
+protocol.workspace = true
+telemetry.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Hashing
+sha2.workspace = true
+hex.workspace = true
+
+# UUID
+uuid.workspace = true
+
+# Time
+chrono.workspace = true
+
+# Error
+thiserror.workspace = true
+anyhow = "1"
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Async
+tokio.workspace = true
+tokio-stream.workspace = true
+
+# CLI
+clap.workspace = true
+toml.workspace = true
+
+# HTTP for local mock interface
+axum = { version = "0.7", features = ["json"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+[dev-dependencies]
+tempfile.workspace = true

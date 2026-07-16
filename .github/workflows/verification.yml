@@ -1,0 +1,28 @@
+name: Verification CI
+
+on:
+  pull_request:
+
+jobs:
+  verify-all:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v2
+      - run: uv sync
+      - run: uv run python scripts/validate_requirements.py
+      - run: cargo test --workspace
+
+  crash-injection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: echo "Crash injection tests — Milestone 3"
+
+  adversarial:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Adversarial input tests — Milestone 8"

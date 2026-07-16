@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://binary-event-research/schemas/mock-lifecycle-event.v1.json",
+  "title": "MockLifecycleEvent",
+  "description": "A mock gateway lifecycle event for scripted scenario testing (DEM-001).",
+  "type": "object",
+  "required": ["environment", "scenario_id", "event_type", "timestamp"],
+  "properties": {
+    "environment": { "type": "string", "const": "LOCAL_MOCK_DEMO" },
+    "scenario_id": { "type": "string" },
+    "event_type": {
+      "enum": ["acknowledgement", "rejection", "partial_fill", "complete_fill", "cancellation", "settlement"]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "message_id": { "type": "string" },
+    "intent_id": { "type": "string" },
+    "status": { "type": "string" },
+    "quantity": { "type": "integer" },
+    "price": { "type": "integer" },
+    "reason": { "type": "string" }
+  },
+  "additionalProperties": false
+}

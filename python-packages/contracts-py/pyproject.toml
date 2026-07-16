@@ -1,0 +1,14 @@
+[project]
+name = "contracts-py"
+version = "0.1.0"
+description = "Binary Event Forecasting — Python contract models (Pydantic)"
+requires-python = ">=3.11"
+license = { text = "UNLICENSED" }
+
+dependencies = [
+    "pydantic>=2",
+    "pydantic-settings>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]

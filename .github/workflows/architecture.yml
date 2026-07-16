@@ -1,0 +1,37 @@
+name: Architecture CI
+
+on:
+  push:
+    paths:
+      - '**/Cargo.toml'
+      - '**/pyproject.toml'
+      - 'docs/specification/**'
+      - 'verification/**'
+      - '.github/workflows/architecture.yml'
+  pull_request:
+
+jobs:
+  requirement-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+      - run: uv sync
+      - run: uv run python scripts/validate_requirements.py
+
+  dependency-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: echo "Dependency boundary check — stub"
+
+  forbidden-patterns:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          # Scan for prohibited patterns (SEC-003)
+          ! grep -rq "ed25519-dalek\|secp256k1\|solana-sdk\|ethers" crates/ services/ || { echo "FAIL: Private-key library detected"; exit 1; }
+          ! grep -rq "deposit\|withdraw\|payment\|stripe\|paypal" crates/ services/ --include="*.rs" || { echo "FAIL: Payment/deposit code detected"; exit 1; }
+          echo "Forbidden pattern scan passed."
