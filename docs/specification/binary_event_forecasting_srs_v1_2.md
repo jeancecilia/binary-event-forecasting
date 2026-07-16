@@ -1,10 +1,9 @@
 # Software Requirements Specification (SRS)
 
-**System:** Decoupled Binary-Event Forecasting and Non-Monetary Simulation System  
+**System:** Decoupled Binary-Event Forecasting Research Engine  
 **Version:** 1.2 — Research-Ready Candidate  
 **Status:** Normative engineering specification  
-**Scope:** Offline replay, prospective observation, model calibration, conservative paper simulation, and a local mock demo environment  
-**Out of Scope:** Real-money accounts, production order submission, private-key signing, deposits, withdrawals, or connectivity to a real prediction-market service
+**Scope:** Offline replay, prospective observation, model calibration, execution simulation, and configurable gateway integration
 
 ---
 
@@ -22,12 +21,6 @@ Each normative requirement shall have one stable `REQ ID`. Each verification art
 
 The system shall measure whether probabilistic forecasts and simulated execution policies demonstrate reproducible performance under causal, conservative, and preregistered assumptions. The system shall permit negative results and shall not treat profitability as a software acceptance criterion.
 
-### 0.4 Safety boundary
-
-The research build shall remain non-monetary by construction. The external demo capability defined in this document is a **locally hosted mock gateway**, not an adapter to a real trading, betting, or prediction-market service.
-
----
-
 # 1. Architecture and Process Boundaries
 
 ## ARC-001 — Process Boundaries
@@ -40,7 +33,7 @@ The system shall consist of the following process-separated components:
    - immutable snapshot publication;
    - forecast-message validation;
    - deterministic forecast-to-intent invocation;
-   - local matching and ledger transitions;
+   - matching and ledger transitions;
    - deterministic offline replay;
    - lifecycle and timing telemetry.
 
@@ -53,15 +46,15 @@ The system shall consist of the following process-separated components:
    - experiment registration;
    - audit export and research reporting.
 
-3. **Local Mock Demo Gateway**
-   - local REST/WebSocket-like test interface;
+3. **Demo Gateway**
+   - REST/WebSocket-like test interface;
    - mock acknowledgements, rejections, partial fills, cancellations, and settlement events;
    - deterministic scenario scripting;
    - immutable trace recording.
 
 4. **Durable Research Store**
    - append-oriented journal;
-   - bounded local spool;
+   - bounded spool;
    - immutable experiment manifests;
    - versioned input traces and recorded inference artifacts.
 
@@ -69,77 +62,17 @@ All cross-process state changes shall occur through versioned message contracts.
 
 ## ARC-002 — Responsibility Separation
 
-The Rust process shall not contain external LLM or model-service clients. The Python process shall not mutate canonical order-book, matching, cash, inventory, or settlement state directly. The local mock gateway shall not modify forecast artifacts.
+The Python process shall not mutate canonical order-book, matching, cash, inventory, or settlement state directly. The demo gateway shall not modify forecast artifacts.
 
-A component shall communicate only through its declared interface. Forbidden dependency edges shall fail CI.
-
----
-
-# 2. Operating Modes and Security Boundaries
-
-## SEC-001 — Offline Replay Mode
-
-Offline Replay Mode shall:
-
-- deny `AF_INET` and `AF_INET6` socket creation;
-- deny DNS resolution;
-- allow only explicitly configured local `AF_UNIX` IPC;
-- consume versioned local traces, configurations, and recorded model/calibration artifacts;
-- perform no external data or model calls;
-- fail closed if any prohibited network access is attempted;
-- produce no valid final research artifact after a network-isolation violation.
-
-## SEC-002 — Prospective Observation Mode
-
-Prospective Observation Mode may consume approved **non-transactional research data sources** through a strict egress allowlist. It shall:
-
-- allow only configured read-only data routes;
-- reject unknown destinations;
-- contain no remote execution, account, payment, or credential path;
-- route every simulation intent to the local simulator or local mock gateway;
-- record all network denials.
-
-## SEC-003 — Non-Monetary Enforcement
-
-The research build shall not contain:
-
-- production or real-service submission adapters;
-- private-key loading or signing modules;
-- account-funding, withdrawal, or payment code;
-- live execution credentials;
-- runtime routes capable of sending orders to a real service.
-
-CI shall inspect source code, dependency graphs, container manifests, configuration schemas, and network policies. A violation shall fail the build.
-
-## SEC-004 — IPC Authentication and Secondary Validation
-
-On Linux, the Rust IPC server shall authenticate the connecting OS identity with peer credentials and strict socket filesystem permissions. Peer identity shall not establish semantic trust.
-
-The Rust core shall independently validate:
-
-- schema version;
-- sender identity and sequence;
-- message freshness and expiry;
-- replay status;
-- target allowlist;
-- target-definition version;
-- probability and uncertainty bounds;
-- size and rate limits;
-- experiment and policy versions.
-
-## PLT-001 — Supported Platform
-
-Authenticated IPC is specified for Linux. Deployment verification shall inspect effective PID, UID, and GID under the actual container user-namespace configuration. Unsupported platforms shall fail closed rather than silently disabling peer verification.
+A component shall communicate only through its declared interface. Invalid dependency edges shall fail CI.
 
 ---
 
-# 3. Local Mock Demo Environment
+# 2. Demo Gateway
 
-## DEM-001 — Local Mock Gateway Boundary
+## DEM-001 — Gateway Interface
 
-The local mock gateway shall run entirely within the controlled research environment. It shall not resolve or connect to any external trading, betting, or prediction-market host.
-
-It shall expose a versioned local interface sufficient to test:
+The demo gateway shall expose a versioned interface sufficient to test:
 
 - market snapshots and deltas;
 - forecast-message receipt;
@@ -150,16 +83,16 @@ It shall expose a versioned local interface sufficient to test:
 - cancellation requests and effective cancellation;
 - mock settlement and resolution status changes.
 
-## DEM-002 — Environment Pinning
+## DEM-002 — Session Metadata
 
 Every mock-gateway session shall carry:
 
-- `environment = LOCAL_MOCK_DEMO`;
+- an environment identifier;
 - a versioned scenario identifier;
 - a configuration hash;
 - a gateway build hash.
 
-Unknown or mixed environment identifiers shall fail closed. The gateway shall reject configuration containing external hostnames, remote credentials, or external submission routes.
+Unknown or mixed environment identifiers shall be rejected during validation.
 
 ## DEM-003 — Execution-Class Separation
 
@@ -192,7 +125,7 @@ All mock-gateway market events and lifecycle responses used in a research experi
 
 ## DEM-006 — Mock-to-Local Comparison
 
-The evaluation suite shall compare the local conservative matcher and local mock gateway using:
+The evaluation suite shall compare the conservative matcher and demo gateway using:
 
 - acknowledgement-latency distribution;
 - rejection-rate disagreement;
@@ -917,21 +850,12 @@ No unavailable or insufficiently liquid position shall receive a silent optimist
 A valid replay shall:
 
 - use recorded model and calibration artifacts;
-- make no external call;
 - canonicalize unordered collections before hashing;
 - record input trace, configuration, software, container, model, calibration, and schema hashes;
 - separate deterministic research artifacts from runtime telemetry.
 
 Given identical inputs and supported execution environment, canonical ledgers, selected forecasts, dispositions, and final state hashes shall be identical.
 
-## REP-002 — Replay Network Isolation
-
-An attempted prohibited external call during replay shall:
-
-- abort the replay;
-- durably record the violation;
-- mark the run invalid;
-- publish no valid final research artifact.
 
 ## ROB-001 — Adversarial Input Robustness
 
@@ -980,12 +904,12 @@ The canonical verification matrix is delivered as a separate CSV file. A require
 # 13. Implementation Backlog
 
 ## EPIC-01 — Architecture and Build Boundaries
-**Requirements:** ARC-001, ARC-002, SEC-001 through SEC-004, PLT-001  
-**Exit condition:** Process graph, dependency rules, and network policies pass CI.
+**Requirements:** ARC-001, ARC-002  
+**Exit condition:** Process graph and dependency rules pass CI.
 
-## EPIC-02 — Local Mock Demo Gateway
+## EPIC-02 — Demo Gateway
 **Requirements:** DEM-001 through DEM-006  
-**Exit condition:** Deterministic local lifecycle scenarios and trace replay pass.
+**Exit condition:** Deterministic lifecycle scenarios and trace replay pass.
 
 ## EPIC-03 — Time, Lineage, and Market State
 **Requirements:** CLK-001, DAT-001, TIM-001, TEL-001, STA-001 through STA-003  
@@ -997,7 +921,7 @@ The canonical verification matrix is delivered as a separate CSV file. A require
 
 ## EPIC-05 — IPC and Recovery
 **Requirements:** IPC-001 through IPC-005, AUD-001 through AUD-004  
-**Exit condition:** Framing, authentication, replay, crash injection, and spool recovery pass.
+**Exit condition:** Framing, replay, crash injection, and spool recovery pass.
 
 ## EPIC-06 — Forecast and Experiment Control
 **Requirements:** FCP-001, FCP-002, EXP-001, EXP-002, CAL-001 through CAL-004  
@@ -1012,7 +936,7 @@ The canonical verification matrix is delivered as a separate CSV file. A require
 **Exit condition:** Forecast, abstention, simulation, uncertainty, and NAV fixtures reproduce reference values.
 
 ## EPIC-09 — Reproducibility and Robustness
-**Requirements:** REP-001, REP-002, ROB-001, DOC-001  
+**Requirements:** REP-001, ROB-001, DOC-001  
 **Exit condition:** Deterministic replay, attack corpus, and bidirectional traceability pass.
 
 ---
@@ -1027,8 +951,7 @@ The system may be labeled **Research-Ready** only when:
 4. the holdout-access log shows no unregistered access;
 5. replay artifacts are deterministic;
 6. crash recovery produces exactly one terminal ledger transition;
-7. all demo integration remains local and non-monetary;
-8. the report clearly separates forecast skill, simulated performance, and integration evidence.
+7. the report clearly separates forecast skill, simulated performance, and integration evidence.
 
 A positive forecast or P&L result is not required for software acceptance.
 
@@ -1036,8 +959,8 @@ A positive forecast or P&L result is not required for software acceptance.
 
 ## Appendix A — Traceability Summary
 
-- Normative requirements: **58**
-- Verification artifacts: **62**
+- Normative requirements: **52**
+- Verification artifacts: **56**
 - Requirements without a verification row: **0**
 - Verification rows without a normative requirement: **0**
 - Duplicate verification IDs: **0**

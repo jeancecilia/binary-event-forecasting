@@ -1,7 +1,7 @@
 [project]
 name = "binary-event-research"
 version = "0.1.0"
-description = "Decoupled Binary-Event Forecasting and Non-Monetary Simulation System"
+description = "Decoupled Binary-Event Forecasting Research Engine"
 requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "UNLICENSED" }

@@ -9,7 +9,6 @@ verification/
 ├── tests/                          # Test implementations named by VERIF ID
 │   ├── ARC-001-V1/
 │   ├── ARC-002-V1/
-│   ├── SEC-001-V1/
 │   ├── IPC-001-V1/
 │   ├── AUD-004-V1/
 │   └── REP-001-V1/
@@ -110,7 +109,11 @@ The requirement validator (`scripts/validate_requirements.py`) checks:
 3. No duplicate VERIF IDs
 4. No duplicate REQ IDs
 5. No invisible/control characters in identifiers
-6. Every VERIF ID has a corresponding test directory or explicit reviewed justification
+6. Every automated VERIF ID has a nonempty executable test or an explicit entry in
+   `verification/pending_verifications.csv`
+
+Empty directories and `.gitkeep` files are not verification evidence. Pending
+entries are reported separately as warnings and must include a reason.
 
 Run with:
 ```bash

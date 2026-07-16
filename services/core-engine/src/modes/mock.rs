@@ -1,6 +1,6 @@
-//! Local Mock Demo Mode.
+//! Demo Gateway Mode.
 //!
-//! Integrates with the local mock gateway for scripted scenario testing.
+//! Integrates with the configured gateway for scripted scenario testing.
 
 /// Run the core engine in mock demo mode.
 pub async fn run() -> anyhow::Result<()> {

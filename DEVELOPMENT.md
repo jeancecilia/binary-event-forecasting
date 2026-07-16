@@ -109,7 +109,7 @@ CI will run the full pipeline. All gates must pass.
 ## Coding Standards
 
 ### Rust
-- `#[deny(unsafe_code)]` in all crates except the IPC server (peer credentials)
+- `#[deny(unsafe_code)]` in all crates
 - `#[deny(clippy::disallowed_types)]` for floating-point in domain crates
 - All public types must implement `Debug`, `Clone`, `Serialize`, `Deserialize`
 - Checked arithmetic only (`checked_add`, `checked_mul`, etc.)
@@ -133,7 +133,7 @@ CI will run the full pipeline. All gates must pass.
 2. Add to workspace `[members]` in root `Cargo.toml`
 3. Add dependency rules to `devtools/dependency-boundary-checker/rules.toml`
 4. Create `crates/<name>/README.md`
-5. Run `just check-dependencies` to verify no forbidden edges
+5. Run `just check-dependencies` to verify the declared dependency layering
 
 ## Adding a New Python Package
 

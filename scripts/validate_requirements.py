@@ -7,7 +7,7 @@ Validates:
 3. No duplicate VERIF IDs
 4. No duplicate normative REQ ID headings in the SRS
 5. No invisible/control characters in controlled identifiers
-6. Every automated VERIF ID has a corresponding test directory
+6. Every automated VERIF ID has executable test evidence or is explicitly pending
 
 Usage:
     python scripts/validate_requirements.py
@@ -52,16 +52,56 @@ def parse_verification_matrix(csv_path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def find_verif_test_dirs(verification_dir: Path) -> set[str]:
-    verif_dirs: set[str] = set()
+def find_verif_test_evidence(verification_dir: Path) -> tuple[set[str], set[str]]:
+    """Return VERIF IDs with executable tests and empty placeholder directories."""
+    evidence: set[str] = set()
+    placeholders: set[str] = set()
     if not verification_dir.exists():
-        return verif_dirs
+        return evidence, placeholders
     tests_dir = verification_dir / "tests"
     if tests_dir.exists():
         for d in tests_dir.iterdir():
             if d.is_dir() and VERIF_ID_RE.match(d.name):
-                verif_dirs.add(d.name)
-    return verif_dirs
+                test_files = [
+                    path
+                    for path in d.rglob("*")
+                    if path.is_file()
+                    and path.stat().st_size > 0
+                    and (
+                        path.suffix == ".rs"
+                        or path.suffix == ".sh"
+                        or (
+                            path.suffix == ".py"
+                            and (path.name.startswith("test_") or path.name.endswith("_test.py"))
+                        )
+                    )
+                ]
+                if test_files:
+                    evidence.add(d.name)
+                else:
+                    placeholders.add(d.name)
+    return evidence, placeholders
+
+
+def parse_pending_verifications(path: Path) -> dict[str, str]:
+    """Load explicit pending verification IDs and their reasons."""
+    if not path.exists():
+        return {}
+
+    pending: dict[str, str] = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != ["Verif ID", "Reason"]:
+            raise ValueError("Pending verification CSV must have columns: Verif ID,Reason")
+        for row in reader:
+            verif_id = row.get("Verif ID", "").strip()
+            reason = row.get("Reason", "").strip()
+            if not verif_id or not reason:
+                raise ValueError("Pending verification rows require both Verif ID and Reason")
+            if verif_id in pending:
+                raise ValueError(f"Duplicate pending VERIF ID: {verif_id}")
+            pending[verif_id] = reason
+    return pending
 
 
 def check_identifier(identifier: str, location: str) -> list[str]:
@@ -107,6 +147,11 @@ def main() -> int:
         "--verification-dir",
         default="verification",
         help="Path to verification directory",
+    )
+    parser.add_argument(
+        "--pending",
+        default="verification/pending_verifications.csv",
+        help="Path to explicit pending verification CSV",
     )
     args = parser.parse_args()
 
@@ -182,23 +227,43 @@ def main() -> int:
         if req_id not in matrix_req_ids:
             errors.append(f"Normative REQ ID '{req_id}' has no verification row in matrix")
 
-    # Check 3: Each automated VERIF ID must have a test directory
-    verif_test_dirs = find_verif_test_dirs(Path(args.verification_dir))
+    # Check 3: Each automated VERIF ID must have executable evidence or be explicit pending.
+    verif_test_evidence, placeholder_dirs = find_verif_test_evidence(Path(args.verification_dir))
+    try:
+        pending_verifications = parse_pending_verifications(Path(args.pending))
+    except ValueError as error:
+        errors.append(str(error))
+        pending_verifications = {}
+
+    for verif_id in sorted(placeholder_dirs):
+        errors.append(
+            f"VERIF ID '{verif_id}' has an empty placeholder directory; "
+            "add an executable test or mark it pending without a placeholder directory"
+        )
+
+    for verif_id, reason in sorted(pending_verifications.items()):
+        row = next((r for r in matrix_rows if r.get("Verif ID", "") == verif_id), None)
+        if row is None:
+            errors.append(f"Pending VERIF ID '{verif_id}' is not defined in the matrix")
+        elif row.get("Verif Type", "") != "AutomatedTest":
+            errors.append(f"Pending VERIF ID '{verif_id}' is not an AutomatedTest")
+        elif verif_id in verif_test_evidence:
+            errors.append(f"VERIF ID '{verif_id}' has both test evidence and pending status")
+        else:
+            warnings.append(f"VERIF ID '{verif_id}' is PENDING: {reason}")
+
     for verif_id in sorted(matrix_verif_ids):
-        if verif_id not in verif_test_dirs:
-            verif_type = next(
-                (r.get("Verif Type", "") for r in matrix_rows if r.get("Verif ID", "") == verif_id),
-                "",
+        verif_type = next(
+            (r.get("Verif Type", "") for r in matrix_rows if r.get("Verif ID", "") == verif_id),
+            "",
+        )
+        if verif_type in ("AnalysisArtifact", "ManualVerification"):
+            warnings.append(f"VERIF ID '{verif_id}' is {verif_type} - no test expected")
+        elif verif_id not in verif_test_evidence and verif_id not in pending_verifications:
+            errors.append(
+                f"VERIF ID '{verif_id}' ({verif_type}) has neither executable test evidence "
+                "nor explicit pending status"
             )
-            if verif_type in ("AnalysisArtifact", "ManualVerification"):
-                warnings.append(
-                    f"VERIF ID '{verif_id}' is {verif_type} - no test directory expected"
-                )
-            else:
-                errors.append(
-                    f"VERIF ID '{verif_id}' ({verif_type}) has no test directory in "
-                    "verification/tests/"
-                )
 
     # Report
     print("\n=== Requirement Integrity Report ===")
@@ -206,7 +271,9 @@ def main() -> int:
     print(f"All SRS REQ IDs:    {len(srs_all_ids)}")
     print(f"Matrix REQ IDs:     {len(matrix_req_ids)}")
     print(f"Matrix VERIF IDs:   {len(matrix_verif_ids)}")
-    print(f"Test directories:   {len(verif_test_dirs)}")
+    print(f"Test evidence:      {len(verif_test_evidence)}")
+    print(f"Explicit pending:   {len(pending_verifications)}")
+    print(f"Empty placeholders: {len(placeholder_dirs)}")
     print(f"Errors:             {len(errors)}")
     print(f"Warnings:           {len(warnings)}")
 

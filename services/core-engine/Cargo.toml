@@ -57,7 +57,6 @@ toml.workspace = true
 # Database
 rusqlite.workspace = true
 tokio-postgres.workspace = true
-rustix = { version = "0.38", features = ["process"] }
 
 
 [dev-dependencies]

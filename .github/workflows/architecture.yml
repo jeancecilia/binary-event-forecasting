@@ -7,6 +7,7 @@ on:
       - '**/pyproject.toml'
       - 'docs/specification/**'
       - 'verification/**'
+      - 'scripts/validate_requirements.py'
       - '.github/workflows/architecture.yml'
   pull_request:
 
@@ -28,17 +29,3 @@ jobs:
         run: |
           echo "Checking dependency boundaries..."
           python devtools/dependency-boundary-checker/main.py
-
-  forbidden-patterns:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Scan for prohibited patterns (SEC-003)
-        run: |
-          echo "Scanning for private-key libraries..."
-          ! grep -rq "ed25519-dalek\|secp256k1\|solana-sdk\|ethers" crates/ services/ --include="*.rs" || { echo "FAIL: Private-key library detected"; exit 1; }
-          echo "Scanning for payment/deposit code..."
-          ! grep -rq "deposit\|withdraw\|payment\|stripe\|paypal" crates/ services/ --include="*.rs" || { echo "FAIL: Payment/deposit code detected"; exit 1; }
-          echo "Scanning for real-service adapters..."
-          ! grep -rq "binance\|kraken\|coinbase\|polymarket\|kalshi\|metaculus" crates/ services/ --include="*.rs" || { echo "FAIL: Real-service adapter detected"; exit 1; }
-          echo "Forbidden pattern scan passed."

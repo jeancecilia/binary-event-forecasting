@@ -13,7 +13,7 @@ Cross-process messages must be validated identically in both languages. Binary s
 - JSON Schema in `contracts/schemas/` is authoritative
 - Rust: `serde` with `serde_json`
 - Python: Pydantic with strict validation
-- Unknown enum values and schema versions fail closed
+- Unknown enum values and schema versions are rejected during validation
 - Golden vectors verify cross-language hash equivalence
 
 ## Consequences

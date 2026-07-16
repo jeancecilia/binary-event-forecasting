@@ -1,4 +1,4 @@
-//! Offline Replay Mode (SEC-001, REP-001, REP-002).
+//! Offline Replay Mode (REP-001).
 //!
 //! The most restrictive mode. Denies AF_INET/AF_INET6, DNS resolution,
 //! and all external calls. Consumes versioned local traces only.
@@ -93,6 +93,8 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
     );
 
     if config.verify {
+        ensure_no_violations("run 1", &result_a)?;
+
         // Run 2 - must produce identical hash
         let result_b = execute_replay(&config).await?;
         tracing::info!(
@@ -100,6 +102,8 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
             events = result_b.events_processed,
             "Replay run 2 complete"
         );
+
+        ensure_no_violations("run 2", &result_b)?;
 
         if result_a.final_state_hash != result_b.final_state_hash {
             anyhow::bail!(
@@ -111,6 +115,16 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
         tracing::info!("Replay determinism verified: hashes match.");
     }
 
+    Ok(())
+}
+
+fn ensure_no_violations(run_label: &str, result: &ReplayResult) -> anyhow::Result<()> {
+    if !result.violations.is_empty() {
+        anyhow::bail!(
+            "REPLAY VERIFICATION FAILED: {run_label} reported violations: {}",
+            result.violations.join("; ")
+        );
+    }
     Ok(())
 }
 
@@ -197,7 +211,6 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
     }
 
     let mut journal_records: Vec<JournalRecord> = Vec::new();
-    let mut events_processed: u64 = 0;
     let mut forecasts_processed: u64 = 0;
     let mut intents_simulated: u64 = 0;
     let mut fills: u64 = 0;
@@ -209,6 +222,8 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         .filter(|l| !l.is_empty())
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
+    let events_processed = u64::try_from(events.len())
+        .map_err(|_| anyhow::anyhow!("Market event count exceeds u64"))?;
 
     let forecasts: Vec<ForecastMessage> = forecasts_str
         .lines()
@@ -289,7 +304,6 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
             manifest.logical_epoch,
         );
         journal_records.push(record);
-        events_processed += 1;
 
         let policy_config = ForecastPolicyConfig {
             version: "v1".to_string(),
@@ -366,34 +380,26 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                             manifest.logical_epoch,
                         );
                         journal_records.push(plan_record);
-                        events_processed += 1;
 
-                        // 2. Apply idempotent ledger transition
+                        // 2. Apply the transition in memory, then atomically persist both
+                        // the application record and its canonical ledger checkpoint.
                         ledger.apply_transition(&transition).unwrap();
-                        journal::db::commit_transition_application(
-                            &mut conn,
-                            &transition_id,
-                            "replay-entity",
-                            &logical_time_to_utc(logical_clock, manifest.logical_epoch)
-                                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                            &transition_payload,
-                        )
-                        .unwrap();
-
-                        // 3. Save Ledger State
-                        let ledger_json = serde_json::to_string(&ledger).unwrap();
-                        journal::db::save_ledger_state(
-                            &mut conn,
-                            "chkpt-1",
-                            ledger.version,
-                            &ledger.free_cash.as_raw().to_string(),
-                            &ledger.reserved_cash.as_raw().to_string(),
-                            &ledger_json,
-                            &logical_time_to_utc(logical_clock, manifest.logical_epoch)
-                                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                            "state_hash",
-                        )
-                        .unwrap();
+                        let application_timestamp =
+                            logical_time_to_utc(logical_clock, manifest.logical_epoch)
+                                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                        let checkpoint_id =
+                            format!("checkpoint-{}-{}", transition_id, ledger.version);
+                        let checkpoint_hash =
+                            journal::db::persist_transition_application_and_checkpoint(
+                                &mut conn,
+                                &transition_id,
+                                "replay-entity",
+                                &application_timestamp,
+                                &transition_payload,
+                                &checkpoint_id,
+                                &application_timestamp,
+                                &ledger,
+                            )?;
 
                         // SIMULATE CRASH:
                         // We do NOT write DispositionCommitted yet. We drop the DB and server.
@@ -405,49 +411,22 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                         // RECOVERY:
                         let mut conn =
                             journal::db::open_journal(db_path.to_str().unwrap()).unwrap();
-                        let recovered_state =
-                            journal::db::load_ledger_state(&conn).unwrap().unwrap();
-                        ledger = Ledger::restore_from_json(&recovered_state.3, "state_hash")
-                            .unwrap_or_else(|_| Ledger::new(Cash::new(1_000_000_000)));
+                        let recovery_timestamp =
+                            logical_time_to_utc(logical_clock + 1, manifest.logical_epoch)
+                                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                        ledger = recover_ledger(
+                            &mut conn,
+                            Cash::new(1_000_000_000),
+                            &recovery_timestamp,
+                        )?;
 
-                        let pending = journal::db::load_pending_transitions(&conn).unwrap();
-                        for (tid, eid, payload) in pending {
-                            if !ledger.applied_transitions.contains(&tid) {
-                                let transition_to_apply: LedgerTransition =
-                                    serde_json::from_str(&payload).unwrap();
-                                ledger.apply_transition(&transition_to_apply).unwrap();
-                                journal::db::commit_transition_application(
-                                    &mut conn,
-                                    &tid,
-                                    &eid,
-                                    &logical_time_to_utc(logical_clock + 1, manifest.logical_epoch)
-                                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                                    &payload,
-                                )
-                                .unwrap();
-                                let ledger_json = serde_json::to_string(&ledger).unwrap();
-                                journal::db::save_ledger_state(
-                                    &mut conn,
-                                    "chkpt-2",
-                                    ledger.version,
-                                    &ledger.free_cash.as_raw().to_string(),
-                                    &ledger.reserved_cash.as_raw().to_string(),
-                                    &ledger_json,
-                                    &logical_time_to_utc(logical_clock + 1, manifest.logical_epoch)
-                                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                                    "state_hash",
-                                )
-                                .unwrap();
-                            }
-                            journal::db::commit_terminal_disposition(
-                                &mut conn,
-                                &tid,
-                                &eid,
-                                &logical_time_to_utc(logical_clock + 1, manifest.logical_epoch)
-                                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                                "final_hash",
-                            )
-                            .unwrap();
+                        if !ledger.applied_transitions.contains(&transition_id) {
+                            anyhow::bail!(
+                                "Recovery did not retain applied transition {transition_id}"
+                            );
+                        }
+                        if checkpoint_hash != protocol::canonical_hash(&ledger)? {
+                            anyhow::bail!("Recovered ledger does not match durable checkpoint");
                         }
 
                         tracing::info!(
@@ -462,7 +441,6 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                             manifest.logical_epoch,
                         );
                         journal_records.push(commit_record);
-                        events_processed += 1;
                     }
                     MatchResult::Rejected { reason } => {
                         rejections += 1;
@@ -511,6 +489,71 @@ async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         rejections,
         violations,
     })
+}
+
+/// Restore the latest valid checkpoint, or the initial ledger when recovery
+/// starts after a plan was persisted but before any checkpoint existed. Every
+/// pending plan is applied idempotently, atomically checkpointed with its
+/// application record, and then committed exactly once.
+fn recover_ledger(
+    conn: &mut rusqlite::Connection,
+    initial_cash: Cash,
+    recovery_timestamp: &str,
+) -> anyhow::Result<Ledger> {
+    let mut ledger = match journal::db::load_ledger_state(conn)? {
+        Some(checkpoint) => {
+            let restored =
+                Ledger::restore_from_json(&checkpoint.ledger_json, &checkpoint.state_hash)
+                    .map_err(|error| anyhow::anyhow!("Invalid ledger checkpoint: {error}"))?;
+            if restored.version != checkpoint.ledger_version {
+                anyhow::bail!(
+                    "Checkpoint version mismatch: row={}, payload={}",
+                    checkpoint.ledger_version,
+                    restored.version
+                );
+            }
+            restored
+        }
+        None => Ledger::new(initial_cash),
+    };
+
+    for (transition_id, entity_id, payload) in journal::db::load_pending_transitions(conn)? {
+        let transition: LedgerTransition = serde_json::from_str(&payload).map_err(|error| {
+            anyhow::anyhow!("Invalid transition payload for {transition_id}: {error}")
+        })?;
+        if transition.transition_id != transition_id {
+            anyhow::bail!(
+                "Transition identity mismatch: plan={}, payload={}",
+                transition_id,
+                transition.transition_id
+            );
+        }
+
+        ledger
+            .apply_transition(&transition)
+            .map_err(|error| anyhow::anyhow!("Failed to recover {transition_id}: {error}"))?;
+
+        let checkpoint_id = format!("checkpoint-{}-{}", transition_id, ledger.version);
+        let state_hash = journal::db::persist_transition_application_and_checkpoint(
+            conn,
+            &transition_id,
+            &entity_id,
+            recovery_timestamp,
+            &payload,
+            &checkpoint_id,
+            recovery_timestamp,
+            &ledger,
+        )?;
+        journal::db::commit_terminal_disposition(
+            conn,
+            &transition_id,
+            &entity_id,
+            recovery_timestamp,
+            &state_hash,
+        )?;
+    }
+
+    Ok(ledger)
 }
 
 /// Convert a logical clock tick to a UTC timestamp.
@@ -580,4 +623,82 @@ async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixS
 #[cfg(not(unix))]
 async fn connect_ipc(_path: &std::path::Path) -> anyhow::Result<tokio::net::TcpStream> {
     anyhow::bail!("Unix strictly required for IPC");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_reconstructs_a_plan_when_no_checkpoint_exists() -> anyhow::Result<()> {
+        let mut conn = journal::db::open_journal(":memory:")?;
+        let transition = LedgerTransition {
+            transition_id: "transition-plan-only".to_string(),
+            free_cash_delta: -125,
+            reserved_cash_delta: 125,
+            total_cash_delta: 0,
+        };
+        let payload = serde_json::to_string(&transition)?;
+        journal::db::commit_transition_plan(
+            &mut conn,
+            &transition.transition_id,
+            "entity-plan-only",
+            "2026-01-01T00:00:00Z",
+            &payload,
+        )?;
+        assert!(journal::db::load_ledger_state(&conn)?.is_none());
+
+        let recovered = recover_ledger(&mut conn, Cash::new(1_000), "2026-01-01T00:00:01Z")?;
+        assert_eq!(recovered.free_cash.as_raw(), 875);
+        assert_eq!(recovered.reserved_cash.as_raw(), 125);
+        assert_eq!(recovered.version, 1);
+        assert!(recovered
+            .applied_transitions
+            .contains(&transition.transition_id));
+
+        let applications: u64 =
+            conn.query_row("SELECT COUNT(*) FROM transition_applications", [], |row| {
+                row.get(0)
+            })?;
+        let checkpoints: u64 =
+            conn.query_row("SELECT COUNT(*) FROM ledger_checkpoints", [], |row| {
+                row.get(0)
+            })?;
+        let commits: u64 =
+            conn.query_row("SELECT COUNT(*) FROM transition_commits", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(applications, 1);
+        assert_eq!(checkpoints, 1);
+        assert_eq!(commits, 1);
+
+        // A second recovery sees no pending plan and leaves state unchanged.
+        let recovered_again = recover_ledger(&mut conn, Cash::new(1_000), "2026-01-01T00:00:02Z")?;
+        assert_eq!(
+            protocol::canonical_hash(&recovered)?,
+            protocol::canonical_hash(&recovered_again)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn verified_replay_rejects_any_recorded_violation() {
+        let result = ReplayResult {
+            final_state_hash: "hash".to_string(),
+            events_processed: 1,
+            forecasts_processed: 1,
+            intents_simulated: 0,
+            fills: 0,
+            rejections: 0,
+            violations: vec!["receipt was rejected".to_string()],
+        };
+
+        let error = ensure_no_violations("test run", &result);
+        assert!(error.is_err());
+        let detail = error
+            .err()
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        assert!(detail.contains("receipt was rejected"));
+    }
 }

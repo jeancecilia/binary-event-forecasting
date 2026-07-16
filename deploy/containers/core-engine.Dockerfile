@@ -37,14 +37,15 @@ RUN cargo build --release --bin core-engine
 
 FROM debian:bookworm-slim
 
+WORKDIR /app
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/core-engine /usr/local/bin/core-engine
 COPY config/core.toml /app/config/core.toml
-COPY deploy/seccomp/ /app/seccomp/
-
+COPY data/traces/golden/ /app/data/traces/golden/
 RUN mkdir -p /app/var/journal /app/var/spool /app/var/artifacts
 RUN mkdir -p /run/binary-event-research
 

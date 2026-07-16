@@ -1,157 +1,99 @@
-# ARCHITECTURE.md — System Design and Process Boundaries
+# ARCHITECTURE.md — Repository and Runtime Map
 
-## Overview
+## System Overview
 
-The Binary Event Forecasting system is a **decoupled, process-separated research platform** with four logical components:
+The Binary Event Forecasting project is a process-separated monorepo. Rust owns deterministic canonical simulation state; Python owns forecasting and research workflows; both share versioned JSON contracts.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Research Monorepo                         │
-│                                                              │
-│  ┌──────────────────┐    AF_UNIX IPC    ┌────────────────┐  │
-│  │  Rust Core Engine │◄────────────────►│ Python Intel.  │  │
-│  │  (canonical state)│   versioned msgs  │ Plane           │  │
-│  │                   │                   │ (inference)     │  │
-│  └────────┬──────────┘                   └────────────────┘  │
-│           │                                                   │
-│           │ SQLite journal + PostgreSQL store                 │
-│           ▼                                                   │
-│  ┌──────────────────┐                                        │
-│  │  Durable Research │                                        │
-│  │  Store            │                                        │
-│  └──────────────────┘                                        │
-│                                                              │
-│  ┌──────────────────┐                                        │
-│  │  Local Mock       │  ← localhost/AF_UNIX only             │
-│  │  Gateway          │                                        │
-│  └──────────────────┘                                        │
-└─────────────────────────────────────────────────────────────┘
+```text
+source data → Python intelligence plane → forecast message
+                                         ↓
+market data → Rust core engine → policy → matching → ledger
+                                         ↓
+                                journal and deterministic replay
+
+mock gateway ↔ scripted integration scenarios and traces
 ```
 
-## Process Boundaries
+## Components
 
-### 1. Rust Core Simulation Engine (`services/core-engine/`)
+### Rust core engine
 
-**Sole owner of:**
-- Market-event ingestion and ordering
-- Canonical order books and snapshots
-- Logical simulation clock (`t_simulation`)
-- Forecast-message validation (secondary, independent of Python)
-- Forecast-to-intent policy transformation
-- Matching engine (immediate + passive queue)
-- Cash and inventory ledger
-- Settlement
-- Durable journal (SQLite WAL)
-- Crash recovery and idempotency
-- Canonical artifact hashing
-- Offline replay
+Location: [`services/core-engine/`](services/core-engine/)
 
-**Must not contain:**
-- LLM API clients
-- External model-service clients
-- Production trading adapters
-- Private-key handling
-- Real market credentials
-- External order submission routes
+Composes market ingestion, snapshots, forecast validation, policy transformation, matching, ledger transitions, journaling, crash recovery, and replay.
 
-### 2. Python Intelligence and Audit Plane (`services/intelligence-plane/`)
+### Python intelligence plane
 
-**Owns:**
-- Source document ingestion
-- Untrusted-text preprocessing
-- Feature generation and storage
-- Model inference (ensemble)
-- Probability calibration
-- Evidence-set lineage and hashing
-- Experiment registration
-- Research reporting and audit export
+Location: [`services/intelligence-plane/`](services/intelligence-plane/)
 
-**Must not:**
-- Mutate canonical order-book or matching state
-- Create fills, change balances, or update settlement
-- Write directly to the Rust journal
-- Execute code from untrusted model output
+Composes source ingestion, preprocessing, inference, calibration, evidence lineage, experiment registration, reporting, and audit export.
 
-### 3. Local Mock Demo Gateway (`services/mock-gateway/`)
+### Mock gateway
 
-**Owns:**
-- Local REST/WebSocket-like test interface
-- Scripted mock lifecycle events (acks, fills, cancellations, settlements)
-- Deterministic scenario scripting
-- Immutable trace recording
+Location: [`services/mock-gateway/`](services/mock-gateway/)
 
-**Must not:**
-- Connect to external trading, betting, or prediction-market hosts
-- Accept configurations with external hostnames or credentials
-- Modify forecast artifacts
+Provides a configurable HTTP interface for scripted acknowledgements, fills, cancellations, settlements, and trace recording.
 
-### 4. Durable Research Store
-
-**Comprises four storage mechanisms:**
+### Storage
 
 | Storage | Purpose | Location |
 |---|---|---|
-| Parquet | High-volume immutable traces, market events, replay datasets | `data/traces/` |
-| SQLite (WAL) | Crash-safe local journal | `var/journal/core-journal.sqlite` |
-| SQLite (spool) | Bounded PostgreSQL spool | `var/spool/research-store-spool.sqlite` |
-| PostgreSQL | Searchable research metadata and reporting | External database |
-| Content-addressed (SHA-256) | Models, calibration files, traces, manifests | `var/artifacts/sha256/` |
+| Parquet | High-volume traces and replay datasets | `data/traces/` |
+| SQLite WAL | Canonical local journal and recovery | `var/journal/` |
+| SQLite spool | Buffered research-store writes | `var/spool/` |
+| PostgreSQL | Searchable experiment and reporting metadata | `storage/postgres/` |
+| Content-addressed files | Models, traces, manifests, and reports | `var/artifacts/sha256/` |
 
-## Cross-Process Communication
+## Canonical Data Flow
 
-All cross-process state changes use **versioned message contracts** over Linux `AF_UNIX` sockets.
+1. Market events are deterministically ordered and materialized as immutable snapshots.
+2. The intelligence plane emits a versioned `ForecastMessage`.
+3. The core validates the message independently.
+4. A versioned forecast policy derives an immutable `SimulationIntent`.
+5. Matching evaluates the intent against the arrival-state snapshot and shared virtual state.
+6. Ledger transitions are planned, applied idempotently, checkpointed, and committed through SQLite.
+7. Replay recomputes the same canonical state hash from the same frozen inputs.
 
-IPC framing:
-- 4-byte big-endian unsigned length prefix
-- UTF-8 JSON payload
-- Explicit schema version
-- Maximum frame size (`MAX_SIGNAL_FRAME_BYTES`)
-- Read timeout and idle timeout
+## Cross-Process Contracts
 
-Python sends `forecast_message` → Rust validates independently → Rust produces `receipt_acknowledgement` → Rust produces `lifecycle_disposition`.
+IPC uses a 4-byte big-endian length prefix followed by UTF-8 JSON. Schema definitions live in [`contracts/schemas/`](contracts/schemas/), with matching Rust and Python models.
 
-## Dependency Rules (CI-Enforced)
+Python sends `forecast_message`; Rust returns `receipt_acknowledgement` and later lifecycle dispositions.
 
-```
+## Internal Dependency Direction
+
+```text
 domain-types
     ↓
-protocol        ← domain-types only
+protocol
     ↓
-market-state    ← domain-types, protocol
+market-state
     ↓
-forecast-policy ← domain-types, protocol, market-state
+forecast-policy
     ↓
-matching        ← domain-types, protocol, market-state
+matching
     ↓
-ledger          ← domain-types, protocol, matching
+ledger
     ↓
-journal         ← domain-types, protocol, ledger
-replay          ← domain-types, protocol, journal
+journal    replay
     ↓
-core-engine     ← all crates above
+core-engine
 ```
 
-Forbidden edges:
-- Lower crate → higher crate
-- Rust → LLM/API client libraries
-- Python → Rust ledger/journal crates
-- mock-gateway → external network
+This layering is a maintainability rule: lower-level crates expose stable concepts and do not depend on orchestration code. The exact graph is validated by [`devtools/dependency-boundary-checker/main.py`](devtools/dependency-boundary-checker/main.py).
 
-## Operating Modes
+## Primary Entry Points
 
-### Offline Replay Mode
-- Denies `AF_INET`/`AF_INET6` socket creation
-- Denies DNS resolution
-- Allows only configured `AF_UNIX` IPC
-- Consumes versioned local traces only
-- Produces deterministic canonical hashes
+- Core CLI: [`services/core-engine/src/main.rs`](services/core-engine/src/main.rs)
+- Replay orchestration: [`services/core-engine/src/modes/replay.rs`](services/core-engine/src/modes/replay.rs)
+- IPC server: [`services/core-engine/src/ipc.rs`](services/core-engine/src/ipc.rs)
+- Forecast policy: [`crates/forecast-policy/src/lib.rs`](crates/forecast-policy/src/lib.rs)
+- Immediate matching: [`crates/matching/src/immediate.rs`](crates/matching/src/immediate.rs)
+- Ledger: [`crates/ledger/src/lib.rs`](crates/ledger/src/lib.rs)
+- Journal database: [`crates/journal/src/db.rs`](crates/journal/src/db.rs)
+- Python contracts: [`python-packages/contracts-py/src/contracts_py/`](python-packages/contracts-py/src/contracts_py/)
 
-### Prospective Observation Mode
-- Allows only configured read-only data routes
-- Rejects unknown destinations
-- Records all network denials
-- Routes all intents to local simulator or mock gateway
+## Architectural Decisions
 
-## Key Design Decisions
+See [`docs/adr/`](docs/adr/) for decisions about repository layout, canonical ownership, contracts, numeric types, storage, hashing, replay, and agent navigation.
 
-See [`docs/adr/`](docs/adr/) for all Architecture Decision Records.

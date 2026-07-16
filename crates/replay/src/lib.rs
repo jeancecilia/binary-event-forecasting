@@ -1,4 +1,4 @@
-//! Deterministic Offline Replay (REP-001, REP-002)
+//! Deterministic Offline Replay (REP-001)
 //!
 //! Reads frozen market-event traces from Parquet, advances a deterministic
 //! logical clock, and replays all simulation steps. Produces canonical

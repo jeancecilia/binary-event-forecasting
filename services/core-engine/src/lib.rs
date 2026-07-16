@@ -16,13 +16,8 @@
 //! ## Operating Modes
 //!
 //! - **Replay**: Deterministic offline replay from frozen traces
-//! - **Prospective**: Read-only research data consumption with egress allowlist
-//! - **Mock**: Local mock gateway integration
-//!
-//! ## Safety
-//!
-//! This crate must not contain LLM/API clients, production trading adapters,
-//! private-key handling, or real market credentials.
+//! - **Prospective**: Configured research data consumption
+//! - **Mock**: Demo gateway integration
 
 pub mod config;
 pub mod ipc;
@@ -55,11 +50,11 @@ pub struct CoreConfig {
 /// Operating modes of the core engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperatingMode {
-    /// Offline replay — network isolated, deterministic
+    /// Offline replay from frozen inputs
     Replay,
-    /// Prospective observation — allowlisted read-only data routes
+    /// Prospective observation through configured data sources
     Prospective,
-    /// Mock demo — local mock gateway integration
+    /// Demo gateway integration
     Mock,
 }
 

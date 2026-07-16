@@ -2,23 +2,22 @@
 
 **Status:** Accepted  
 **Date:** 2026-07-15  
-**Decision:** Use Linux AF_UNIX sockets with peer credential authentication for Rust↔Python IPC.
+**Decision:** Use Linux AF_UNIX sockets for Rust↔Python IPC.
 
 ## Context
 
-The SRS specifies authenticated IPC for Linux. Windows named pipes have different security semantics. Cross-platform IPC would add complexity without research benefit.
+The core engine and intelligence plane are separate local processes. They need a simple streaming transport for versioned JSON messages without adding a separate broker to the development and replay workflow.
 
 ## Decision
 
-- AF_UNIX socket at `/run/binary-event-research/core.sock`
-- SO_PEERCRED for OS-level identity verification
-- Strict filesystem permissions (`0600`)
-- Python connects as client, Rust binds as server
-- Unsupported platforms fail closed
+- Rust binds the configured AF_UNIX socket.
+- Python connects as a client.
+- Messages use the framing and schema rules defined by the protocol crate.
+- Windows development uses WSL2 for the current implementation.
 
 ## Consequences
 
-- Linux-only (acceptable per SRS)
-- Peer credentials provide transport authentication without JWT/OAuth complexity
-- No network exposure — IPC is local only
-- Windows development requires WSL2
+- The transport is simple to inspect and test locally.
+- Replay and integration tests can use temporary socket paths.
+- Native Windows support would require an additional transport implementation.
+

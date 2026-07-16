@@ -1,7 +1,7 @@
-//! Prospective Observation Mode (SEC-002).
+//! Prospective Observation Mode.
 //!
 //! Allows read-only access to approved research data sources
-//! through a strict egress allowlist.
+//! through configured data sources.
 
 /// Run the core engine in prospective observation mode.
 pub async fn run() -> anyhow::Result<()> {

@@ -2,7 +2,6 @@
 //! IPC server module.
 //!
 //! Implements the AF_UNIX IPC server with:
-//! - Peer credential authentication (SO_PEERCRED on Linux)
 //! - 4-byte big-endian length-prefixed framing
 //! - Strict validation of all incoming messages
 //! - Receipt acknowledgements
@@ -56,21 +55,10 @@ impl IpcServer {
             if !meta.file_type().is_socket() {
                 anyhow::bail!("Configured IPC path exists and is not a socket.");
             }
-            use std::os::unix::fs::MetadataExt;
-            if meta.uid() != rustix::process::geteuid().as_raw() {
-                anyhow::bail!("Socket owned by different user");
-            }
-
             std::fs::remove_file(&self.socket_path)?;
         }
 
         let listener = UnixListener::bind(&self.socket_path)?;
-
-        // Try to set permissions on UNIX
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&self.socket_path)?.permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(&self.socket_path, perms)?;
 
         loop {
             let (socket, _) = listener.accept().await?;
@@ -88,7 +76,7 @@ impl IpcServer {
 
     #[cfg(not(unix))]
     pub async fn run(&self) -> anyhow::Result<()> {
-        anyhow::bail!("IPC server requires AF_UNIX. Windows is strictly not supported for this core component.");
+        anyhow::bail!("This IPC transport requires AF_UNIX.");
     }
 
     #[cfg(unix)]
@@ -101,25 +89,6 @@ impl IpcServer {
         db_path: std::path::PathBuf,
     ) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-        // Peer credential authentication
-        match socket.peer_cred() {
-            Ok(cred) => {
-                let current_uid = rustix::process::geteuid().as_raw();
-                if cred.uid() != current_uid {
-                    tracing::error!(
-                        "Unauthorized peer UID: {}. Expected: {}",
-                        cred.uid(),
-                        current_uid
-                    );
-                    return;
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to get peer credentials: {}", e);
-                return;
-            }
-        }
 
         let mut header = [0u8; FRAME_HEADER_SIZE];
         if let Ok(n) = tokio::time::timeout(

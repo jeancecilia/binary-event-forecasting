@@ -1,6 +1,28 @@
 //! SQLite journal database operations.
 
-use rusqlite::{Connection, OptionalExtension};
+use ledger::Ledger;
+use rusqlite::{Connection, OptionalExtension, Transaction};
+
+/// Errors raised while persisting or validating durable journal state.
+#[derive(Debug, thiserror::Error)]
+pub enum JournalDbError {
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+
+    #[error(transparent)]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("Journal integrity violation: {0}")]
+    Integrity(String),
+}
+
+/// Latest durable ledger checkpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerCheckpoint {
+    pub ledger_version: u64,
+    pub ledger_json: String,
+    pub state_hash: String,
+}
 
 /// Open the journal database with recommended settings.
 pub fn open_journal(path: &str) -> Result<Connection, rusqlite::Error> {
@@ -170,56 +192,126 @@ pub fn commit_transition_plan(
     Ok(())
 }
 
-pub fn commit_transition_application(
+/// Persist an application record and the ledger state produced by it in one
+/// SQLite transaction. Repeating the same operation is idempotent; conflicting
+/// content for an existing transition or checkpoint fails closed.
+#[allow(clippy::too_many_arguments)]
+pub fn persist_transition_application_and_checkpoint(
     conn: &mut Connection,
     transition_id: &str,
     entity_id: &str,
     applied_at: &str,
+    transition_payload: &str,
+    checkpoint_id: &str,
+    created_at: &str,
+    ledger: &Ledger,
+) -> Result<String, JournalDbError> {
+    let ledger_json = protocol::canonical_json(ledger)?;
+    let state_hash = protocol::canonical_hash(ledger)?;
+    let ledger_version = ledger.version.to_string();
+    let free_cash = ledger.free_cash.as_raw().to_string();
+    let reserved_cash = ledger.reserved_cash.as_raw().to_string();
+
+    let tx = conn.transaction()?;
+    ensure_transition_application(
+        &tx,
+        transition_id,
+        entity_id,
+        applied_at,
+        transition_payload,
+    )?;
+    ensure_ledger_checkpoint(
+        &tx,
+        checkpoint_id,
+        &ledger_version,
+        &free_cash,
+        &reserved_cash,
+        &ledger_json,
+        created_at,
+        &state_hash,
+    )?;
+    tx.commit()?;
+
+    Ok(state_hash)
+}
+
+fn ensure_transition_application(
+    tx: &Transaction<'_>,
+    transition_id: &str,
+    entity_id: &str,
+    applied_at: &str,
     payload: &str,
-) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO transition_applications (transition_id, entity_id, applied_at, payload) 
+) -> Result<(), JournalDbError> {
+    let existing: Option<(String, String)> = tx
+        .query_row(
+            "SELECT entity_id, payload FROM transition_applications WHERE transition_id = ?1",
+            [transition_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+
+    if let Some((existing_entity_id, existing_payload)) = existing {
+        if existing_entity_id != entity_id || existing_payload != payload {
+            return Err(JournalDbError::Integrity(format!(
+                "transition {transition_id} was already applied with different content"
+            )));
+        }
+        return Ok(());
+    }
+
+    tx.execute(
+        "INSERT INTO transition_applications (transition_id, entity_id, applied_at, payload)
          VALUES (?1, ?2, ?3, ?4)",
         [transition_id, entity_id, applied_at, payload],
     )?;
     Ok(())
 }
 
-pub fn commit_terminal_disposition(
-    conn: &mut Connection,
-    transition_id: &str,
-    entity_id: &str,
-    committed_at: &str,
-    final_hash: &str,
-) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO transition_commits (transition_id, entity_id, committed_at, final_hash) 
-         VALUES (?1, ?2, ?3, ?4)",
-        [transition_id, entity_id, committed_at, final_hash],
-    )?;
-    Ok(())
-}
-
 #[allow(clippy::too_many_arguments)]
-pub fn save_ledger_state(
-    conn: &mut Connection,
+fn ensure_ledger_checkpoint(
+    tx: &Transaction<'_>,
     checkpoint_id: &str,
-    ledger_version: u64,
-    free_cash: &str,     // Kept for schema backwards compatibility or quick querying
-    reserved_cash: &str, // Kept for schema backwards compatibility
-    total_cash: &str,    // Will store the full JSON payload here to avoid schema changes
+    ledger_version: &str,
+    free_cash: &str,
+    reserved_cash: &str,
+    ledger_json: &str,
     created_at: &str,
     state_hash: &str,
-) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO ledger_checkpoints (checkpoint_id, ledger_version, free_cash, reserved_cash, total_cash, created_at, state_hash) 
+) -> Result<(), JournalDbError> {
+    let existing: Option<(u64, String, String)> = tx
+        .query_row(
+            "SELECT ledger_version, total_cash, state_hash
+             FROM ledger_checkpoints WHERE checkpoint_id = ?1",
+            [checkpoint_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+
+    if let Some((existing_version, existing_json, existing_hash)) = existing {
+        let expected_version = ledger_version.parse::<u64>().map_err(|error| {
+            JournalDbError::Integrity(format!("invalid ledger version: {error}"))
+        })?;
+        if existing_version != expected_version
+            || existing_json != ledger_json
+            || existing_hash != state_hash
+        {
+            return Err(JournalDbError::Integrity(format!(
+                "checkpoint {checkpoint_id} already exists with different state"
+            )));
+        }
+        return Ok(());
+    }
+
+    tx.execute(
+        "INSERT INTO ledger_checkpoints
+         (checkpoint_id, ledger_version, free_cash, reserved_cash, total_cash, created_at, state_hash)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         [
             checkpoint_id,
-            &ledger_version.to_string(),
+            ledger_version,
             free_cash,
             reserved_cash,
-            total_cash, // Contains full JSON string of the Ledger
+            ledger_json,
             created_at,
             state_hash,
         ],
@@ -227,22 +319,53 @@ pub fn save_ledger_state(
     Ok(())
 }
 
-pub fn load_ledger_state(
-    conn: &Connection,
-) -> Result<Option<(u64, String, String, String)>, rusqlite::Error> {
-    // Returns (version, free, reserved, total) where total holds the JSON string
+/// Commit the terminal disposition exactly once. Identical retries succeed;
+/// conflicting retries fail closed.
+pub fn commit_terminal_disposition(
+    conn: &mut Connection,
+    transition_id: &str,
+    entity_id: &str,
+    committed_at: &str,
+    final_hash: &str,
+) -> Result<(), JournalDbError> {
+    let existing: Option<(String, String)> = conn
+        .query_row(
+            "SELECT entity_id, final_hash FROM transition_commits WHERE transition_id = ?1",
+            [transition_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+
+    if let Some((existing_entity_id, existing_hash)) = existing {
+        if existing_entity_id != entity_id || existing_hash != final_hash {
+            return Err(JournalDbError::Integrity(format!(
+                "transition {transition_id} was already committed with different content"
+            )));
+        }
+        return Ok(());
+    }
+
+    conn.execute(
+        "INSERT INTO transition_commits (transition_id, entity_id, committed_at, final_hash)
+         VALUES (?1, ?2, ?3, ?4)",
+        [transition_id, entity_id, committed_at, final_hash],
+    )?;
+    Ok(())
+}
+
+pub fn load_ledger_state(conn: &Connection) -> Result<Option<LedgerCheckpoint>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT ledger_version, free_cash, reserved_cash, total_cash 
+        "SELECT ledger_version, total_cash, state_hash
          FROM ledger_checkpoints 
-         ORDER BY ledger_version DESC LIMIT 1",
+         ORDER BY ledger_version DESC, checkpoint_id DESC LIMIT 1",
     )?;
     let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
-        let version: u64 = row.get(0)?;
-        let free: String = row.get(1)?;
-        let res: String = row.get(2)?;
-        let total: String = row.get(3)?; // the full JSON payload
-        Ok(Some((version, free, res, total)))
+        Ok(Some(LedgerCheckpoint {
+            ledger_version: row.get(0)?,
+            ledger_json: row.get(1)?,
+            state_hash: row.get(2)?,
+        }))
     } else {
         Ok(None)
     }
@@ -279,4 +402,109 @@ pub fn load_pending_transitions(
         pending.push((row.get(0)?, row.get(1)?, row.get(2)?));
     }
     Ok(pending)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain_types::Cash;
+    use ledger::{Ledger, LedgerTransition};
+
+    #[test]
+    fn application_and_checkpoint_are_atomic_idempotent_and_hash_verified(
+    ) -> Result<(), JournalDbError> {
+        let mut conn = open_journal(":memory:")?;
+        let mut ledger = Ledger::new(Cash::new(1_000));
+        let transition = LedgerTransition {
+            transition_id: "transition-1".to_string(),
+            free_cash_delta: -100,
+            reserved_cash_delta: 100,
+            total_cash_delta: 0,
+        };
+        ledger
+            .apply_transition(&transition)
+            .map_err(JournalDbError::Integrity)?;
+        let payload = serde_json::to_string(&transition)?;
+
+        let state_hash = persist_transition_application_and_checkpoint(
+            &mut conn,
+            &transition.transition_id,
+            "entity-1",
+            "2026-01-01T00:00:00Z",
+            &payload,
+            "checkpoint-transition-1-1",
+            "2026-01-01T00:00:00Z",
+            &ledger,
+        )?;
+
+        // An identical retry is a no-op even when the retry timestamp differs.
+        let retry_hash = persist_transition_application_and_checkpoint(
+            &mut conn,
+            &transition.transition_id,
+            "entity-1",
+            "2026-01-01T00:00:01Z",
+            &payload,
+            "checkpoint-transition-1-1",
+            "2026-01-01T00:00:01Z",
+            &ledger,
+        )?;
+        assert_eq!(state_hash, retry_hash);
+        assert_eq!(state_hash, protocol::canonical_hash(&ledger)?);
+
+        let checkpoint = load_ledger_state(&conn)?
+            .ok_or_else(|| JournalDbError::Integrity("checkpoint was not persisted".to_string()))?;
+        let restored = Ledger::restore_from_json(&checkpoint.ledger_json, &checkpoint.state_hash)
+            .map_err(JournalDbError::Integrity)?;
+        assert_eq!(restored.version, 1);
+        assert_eq!(restored.free_cash.as_raw(), 900);
+        assert_eq!(restored.reserved_cash.as_raw(), 100);
+
+        let applications: u64 =
+            conn.query_row("SELECT COUNT(*) FROM transition_applications", [], |row| {
+                row.get(0)
+            })?;
+        let checkpoints: u64 =
+            conn.query_row("SELECT COUNT(*) FROM ledger_checkpoints", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(applications, 1);
+        assert_eq!(checkpoints, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn conflicting_application_cannot_leave_a_checkpoint() -> Result<(), JournalDbError> {
+        let mut conn = open_journal(":memory:")?;
+        let ledger = Ledger::new(Cash::new(1_000));
+        persist_transition_application_and_checkpoint(
+            &mut conn,
+            "transition-1",
+            "entity-1",
+            "2026-01-01T00:00:00Z",
+            "payload-a",
+            "checkpoint-a",
+            "2026-01-01T00:00:00Z",
+            &ledger,
+        )?;
+
+        let result = persist_transition_application_and_checkpoint(
+            &mut conn,
+            "transition-1",
+            "entity-1",
+            "2026-01-01T00:00:01Z",
+            "payload-b",
+            "checkpoint-b",
+            "2026-01-01T00:00:01Z",
+            &ledger,
+        );
+        assert!(matches!(result, Err(JournalDbError::Integrity(_))));
+
+        let conflicting_checkpoint: u64 = conn.query_row(
+            "SELECT COUNT(*) FROM ledger_checkpoints WHERE checkpoint_id = 'checkpoint-b'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(conflicting_checkpoint, 0);
+        Ok(())
+    }
 }

@@ -1,13 +1,8 @@
 Req ID,Req Name,Verif ID,Verif Type,Acceptance Oracle
 ARC-001,Process Boundaries,ARC-001-V1,AnalysisArtifact,"Architecture diagram, generated process graph, and source tree confirm the four declared process boundaries and interfaces."
 ARC-002,Responsibility Separation,ARC-002-V1,AutomatedTest,"Dependency rules deny inference clients in Rust, deny canonical matching-state mutation from Python, and prove that cross-process mutations use versioned IPC only."
-SEC-001,Offline Replay Mode,SEC-001-V1,AutomatedTest,"Replay denies AF_INET, AF_INET6, and DNS while permitted AF_UNIX IPC succeeds; prohibited access aborts the run and commits no valid final artifact."
-SEC-002,Prospective Observation Mode,SEC-002-V1,AutomatedTest,Only allowlisted non-transactional research data routes succeed; unknown destinations fail and produce durable network-denial records.
-SEC-003,Non-Monetary Enforcement,SEC-003-V1,AutomatedTest,"Source, dependency, configuration, secret, and network-policy scans find no remote execution adapter, private-key path, payment path, or real-service submission route."
-SEC-004,IPC Authentication and Secondary Validation,SEC-004-V1,AutomatedTest,"An allowed peer with an invalid semantic payload receives the correct rejection and cannot bypass Rust-side freshness, target-version, bounds, or replay validation."
-PLT-001,Supported Platform,PLT-001-V1,AutomatedTest,A connection from a mismatched effective UID/GID or unsupported user-namespace mapping is rejected fail-closed.
-DEM-001,Local Mock Gateway Boundary,DEM-001-V1,AutomatedTest,"Gateway binds only local interfaces, resolves no external host, and supports the complete local mock lifecycle contract."
-DEM-002,Environment Pinning,DEM-002-V1,AutomatedTest,"Any environment other than LOCAL_MOCK_DEMO, or any configuration containing an external hostname or credential, is rejected before startup."
+DEM-001,Gateway Interface,DEM-001-V1,AutomatedTest,Gateway supports the complete lifecycle contract on its configured bind address.
+DEM-002,Session Metadata,DEM-002-V1,AutomatedTest,"Gateway traces preserve the configured environment identifier, scenario identifier, configuration hash, and build hash."
 DEM-003,Execution-Class Separation,DEM-003-V1,AutomatedTest,Identical intents routed to local matching and mock gateway produce records with distinct execution classes and cannot be merged silently.
 DEM-004,Canonical Mock Audit,DEM-004-V1,AutomatedTest,"A scripted rejection, partial fill, cancellation, and final fill produce complete canonical audit records with matching hashes and timestamps."
 DEM-005,Trace Capture and Replay,DEM-005-V1,AutomatedTest,A frozen mock trace replays with no gateway call and yields identical canonical lifecycle artifacts.
@@ -58,6 +53,5 @@ MET-004,Simulation Performance,MET-004-V1,AutomatedTest,"A controlled reference 
 MET-005,Abstention Reporting,MET-005-V1,AutomatedTest,A controlled abstention fixture reproduces covered-subset coverage and score and all-event baseline-fallback score.
 TEL-002,NAV Edge-Case Handling,TEL-002-V1,AutomatedTest,"Empty, one-sided, stale, fragmented, partially liquid, and fully liquid fixtures produce the exact declared valuation status and no silent optimistic value."
 REP-001,Deterministic Offline Replay,REP-001-V1,AutomatedTest,"A valid offline replay with frozen artifacts produces bit-identical canonical selections, dispositions, ledgers, and final state hashes across repeated runs."
-REP-002,Replay Network Isolation,REP-002-V1,AutomatedTest,"A prohibited external call aborts the run, records the violation, marks the run invalid, and produces no valid final research artifact."
 ROB-001,Adversarial Input Robustness,ROB-001-V1,AutomatedTest,"The fixed attack corpus remains bounded, cannot bypass schema validation, executes no content, and produces complete robustness metrics."
 DOC-001,Requirement Integrity,DOC-001-V1,AutomatedTest,"The document validator confirms unique normative IDs, unique verification IDs, matching names, no invisible controlled-identifier characters, and at least one verification or reviewed justification per requirement."

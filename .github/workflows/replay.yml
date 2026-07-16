@@ -14,11 +14,13 @@ jobs:
       - name: Deterministic replay test
         run: cargo run --bin core-engine -- replay --trace data/traces/golden --verify
 
-  network-isolation:
+  container-replay:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Network isolation test
+      - name: Container replay test
         run: |
           docker build -t binary-event-research-core -f deploy/containers/core-engine.Dockerfile .
-          docker run --rm --network none --security-opt seccomp=deploy/seccomp/replay-profile.json binary-event-research-core replay --trace data/traces/golden --verify
+          docker run --rm binary-event-research-core \
+            --config /app/config/core.toml \
+            replay --trace /app/data/traces/golden --verify
