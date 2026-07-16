@@ -1,3 +1,7 @@
+// Allow float arithmetic for EdgeProportional sizing rule in research policy.
+// Float is prohibited in domain-types, matching, ledger, and market-state accounting.
+#![allow(clippy::float_arithmetic)]
+
 //! Forecast-to-Simulation Policy (FCP-001, FCP-002)
 //!
 //! Transforms a forecast message into a deterministic simulation intent.

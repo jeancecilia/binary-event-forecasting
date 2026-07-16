@@ -2,10 +2,10 @@
 """Requirement integrity validator (DOC-001).
 
 Validates:
-1. Every REQ ID in the SRS has at least one VERIF ID in the CSV
+1. Every normative REQ ID heading has at least one VERIF ID in the CSV
 2. Every VERIF ID in the CSV references a REQ ID that exists in the SRS
 3. No duplicate VERIF IDs
-4. No duplicate normative REQ IDs in the SRS body
+4. No duplicate normative REQ ID headings in the SRS
 5. No invisible/control characters in controlled identifiers
 6. Every automated VERIF ID has a corresponding test directory
 
@@ -20,19 +20,33 @@ import sys
 import unicodedata
 from pathlib import Path
 
-REQ_ID_PATTERN = re.compile(r'\b([A-Z]+-\d{3})\b')
-VERIF_ID_PATTERN = re.compile(r'\b([A-Z]+-\d{3}-V\d+)\b')
+# Only match heading-style normative definitions: "## REQ-ID — Name"
+NORMATIVE_HEADING_RE = re.compile(
+    r"^##\s+([A-Z]+-\d{3})\s+—\s+.+$",
+    re.MULTILINE,
+)
+# Match any REQ ID pattern for cross-referencing
+REQ_ID_RE = re.compile(r'\b([A-Z]+-\d{3})\b')
+VERIF_ID_RE = re.compile(r'\b([A-Z]+-\d{3}-V\d+)\b')
 
-# Control characters except category Cf (format characters)
-CONTROL_CHARS = set()
-for i in range(0x10000):
-    cat = unicodedata.category(chr(i))
-    if cat.startswith('C') and cat != 'Cf':
-        CONTROL_CHARS.add(chr(i))
+# All Unicode categories that start with 'C' (control/format/private-use/surrogate)
+# We check for invisible characters in IDs by scanning raw text around matches
+def _has_invisible_chars(s: str) -> bool:
+    for ch in s:
+        cat = unicodedata.category(ch)
+        if cat.startswith('C'):
+            return True
+    return False
 
 
-def extract_req_ids(text: str) -> set[str]:
-    return set(REQ_ID_PATTERN.findall(text))
+def extract_normative_headings(text: str) -> set[str]:
+    """Extract REQ IDs from normative heading lines only."""
+    return set(NORMATIVE_HEADING_RE.findall(text))
+
+
+def extract_all_req_ids(text: str) -> set[str]:
+    """Extract all REQ ID occurrences (headings and references)."""
+    return set(REQ_ID_RE.findall(text))
 
 
 def parse_verification_matrix(csv_path: Path) -> list[dict[str, str]]:
@@ -51,39 +65,40 @@ def find_verif_test_dirs(verification_dir: Path) -> set[str]:
     tests_dir = verification_dir / 'tests'
     if tests_dir.exists():
         for d in tests_dir.iterdir():
-            if d.is_dir() and VERIF_ID_PATTERN.match(d.name):
+            if d.is_dir() and VERIF_ID_RE.match(d.name):
                 verif_dirs.add(d.name)
     return verif_dirs
 
 
-def check_control_chars(text: str) -> list[str]:
+def check_invisible_chars_in_ids(text: str) -> list[str]:
+    """Check for invisible/control characters inside REQ and VERIF IDs."""
     issues: list[str] = []
-    for match in REQ_ID_PATTERN.finditer(text):
-        for ch in match.group(0):
-            if ch in CONTROL_CHARS:
-                issues.append(
-                    f"Control character U+{ord(ch):04X} in REQ ID '{match.group(0)}' at position {match.start()}"
-                )
-    for match in VERIF_ID_PATTERN.finditer(text):
-        for ch in match.group(0):
-            if ch in CONTROL_CHARS:
-                issues.append(
-                    f"Control character U+{ord(ch):04X} in VERIF ID '{match.group(0)}' at position {match.start()}"
-                )
+    # Scan each character position looking for invisible chars near ID-like patterns
+    for i, ch in enumerate(text):
+        cat = unicodedata.category(ch)
+        if cat.startswith('C'):
+            # Get surrounding context
+            start = max(0, i - 30)
+            end = min(len(text), i + 30)
+            context = text[start:end].replace('\n', '\\n').replace('\r', '\\r')
+            issues.append(
+                f"Control/invisible character U+{ord(ch):04X} (category {cat}) "
+                f"at position {i}. Context: ...{context}..."
+            )
     return issues
 
 
-def check_duplicate_normative_ids(text: str) -> list[str]:
-    """Check for duplicate normative REQ IDs in the SRS body."""
+def check_duplicate_normative_headings(text: str) -> list[str]:
+    """Check for duplicate normative REQ ID headings."""
     issues: list[str] = []
     seen: dict[str, int] = {}
-    for match in REQ_ID_PATTERN.finditer(text):
-        req_id = match.group(0)
+    for match in NORMATIVE_HEADING_RE.finditer(text):
+        req_id = match.group(1)
         line_no = text[:match.start()].count('\n') + 1
         if req_id in seen:
             issues.append(
-                f"Duplicate normative REQ ID '{req_id}' at line {line_no} "
-                f"(previously seen at line {seen[req_id]})"
+                f"Duplicate normative heading '{req_id}' at line {line_no} "
+                f"(previously defined at line {seen[req_id]})"
             )
         else:
             seen[req_id] = line_no
@@ -128,12 +143,12 @@ def main() -> int:
         return 1
 
     srs_text = srs_path.read_text(encoding='utf-8')
-    srs_req_ids = extract_req_ids(srs_text)
+    srs_headings = extract_normative_headings(srs_text)
+    srs_all_ids = extract_all_req_ids(srs_text)
     matrix_rows = parse_verification_matrix(matrix_path)
 
     matrix_req_ids: set[str] = set()
     matrix_verif_ids: set[str] = set()
-    verif_to_req: dict[str, str] = {}
 
     for row in matrix_rows:
         req_id = row.get('Req ID', '').strip()
@@ -144,25 +159,27 @@ def main() -> int:
             if verif_id in matrix_verif_ids:
                 errors.append(f"Duplicate VERIF ID in matrix: {verif_id}")
             matrix_verif_ids.add(verif_id)
-            verif_to_req[verif_id] = req_id
 
-    # Check control characters in identifiers
-    control_issues = check_control_chars(srs_text)
-    errors.extend(control_issues)
+    # Check invisible/control characters in the SRS text
+    control_issues = check_invisible_chars_in_ids(srs_text)
+    if control_issues:
+        errors.extend(control_issues)
 
-    # Check duplicate normative IDs in SRS
-    dup_issues = check_duplicate_normative_ids(srs_text)
+    # Check duplicate normative headings
+    dup_issues = check_duplicate_normative_headings(srs_text)
     errors.extend(dup_issues)
 
-    # Check 1: Every matrix REQ ID exists in the SRS
+    # Check 1: Every matrix REQ ID exists somewhere in the SRS
     for req_id in sorted(matrix_req_ids):
-        if req_id not in srs_req_ids:
+        if req_id not in srs_all_ids:
             errors.append(f"REQ ID '{req_id}' in matrix not found in SRS")
 
-    # Check 2: Every SRS REQ ID has at least one verification
-    for req_id in sorted(srs_req_ids):
+    # Check 2: Every normative heading has at least one verification
+    for req_id in sorted(srs_headings):
         if req_id not in matrix_req_ids:
-            errors.append(f"REQ ID '{req_id}' in SRS has no verification row in matrix")
+            errors.append(
+                f"Normative REQ ID '{req_id}' has no verification row in matrix"
+            )
 
     # Check 3: Each automated VERIF ID must have a test directory
     verif_test_dirs = find_verif_test_dirs(Path(args.verification_dir))
@@ -173,7 +190,9 @@ def main() -> int:
                 ''
             )
             if verif_type in ('AnalysisArtifact', 'ManualVerification'):
-                warnings.append(f"VERIF ID '{verif_id}' is {verif_type} - no automated test directory expected")
+                warnings.append(
+                    f"VERIF ID '{verif_id}' is {verif_type} - no test directory expected"
+                )
             else:
                 errors.append(
                     f"VERIF ID '{verif_id}' ({verif_type}) has no test directory in verification/tests/"
@@ -181,12 +200,13 @@ def main() -> int:
 
     # Report
     print(f"\n=== Requirement Integrity Report ===")
-    print(f"SRS REQ IDs:       {len(srs_req_ids)}")
-    print(f"Matrix REQ IDs:    {len(matrix_req_ids)}")
-    print(f"Matrix VERIF IDs:  {len(matrix_verif_ids)}")
-    print(f"Test directories:  {len(verif_test_dirs)}")
-    print(f"Errors:            {len(errors)}")
-    print(f"Warnings:          {len(warnings)}")
+    print(f"Normative headings: {len(srs_headings)}")
+    print(f"All SRS REQ IDs:    {len(srs_all_ids)}")
+    print(f"Matrix REQ IDs:     {len(matrix_req_ids)}")
+    print(f"Matrix VERIF IDs:   {len(matrix_verif_ids)}")
+    print(f"Test directories:   {len(verif_test_dirs)}")
+    print(f"Errors:             {len(errors)}")
+    print(f"Warnings:           {len(warnings)}")
 
     if errors:
         print(f"\n=== ERRORS ({len(errors)}) ===")

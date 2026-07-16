@@ -4,14 +4,26 @@
 //! Observable depth, cash, reserved cash, inventory, and margin
 //! must not be consumed more than once.
 
-use domain_types::Quantity;
+use domain_types::{Price, Quantity};
+use protocol::enums::BookSide;
 use std::collections::HashMap;
+
+/// A unique key for virtual depth tracking.
+/// Prevents collisions across different markets, contracts, sides, and feed generations.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DepthKey {
+    pub market_id: String,
+    pub contract_or_outcome_id: String,
+    pub book_side: BookSide,
+    pub price_raw: u64,
+    pub feed_generation: u64,
+}
 
 /// Tracks virtual depth consumption across all policies.
 #[derive(Debug, Clone, Default)]
 pub struct VirtualDepth {
-    /// Quantity consumed at each price level (price raw → consumed qty)
-    consumed: HashMap<u64, Quantity>,
+    /// Quantity consumed at each depth key
+    consumed: HashMap<DepthKey, Quantity>,
 }
 
 impl VirtualDepth {
@@ -22,39 +34,52 @@ impl VirtualDepth {
         }
     }
 
-    /// Check if consuming additional quantity at a price level would exceed available.
+    /// Check if consuming additional quantity at a depth key would exceed available.
+    /// Uses checked arithmetic.
     pub fn can_consume(
         &self,
-        price_raw: u64,
+        key: &DepthKey,
         requested: &Quantity,
         available: &Quantity,
     ) -> bool {
-        let already_consumed = self
+        let already = self
             .consumed
-            .get(&price_raw)
+            .get(key)
             .map(|q| q.as_raw())
             .unwrap_or(0);
-        already_consumed + requested.as_raw() <= available.as_raw()
+        already.checked_add(requested.as_raw())
+            .map(|total| total <= available.as_raw())
+            .unwrap_or(false)
     }
 
-    /// Consume quantity at a price level. Returns error if it would exceed available.
+    /// Consume quantity at a depth key. Returns error on overflow or exceeding available.
     pub fn consume(
         &mut self,
-        price_raw: u64,
+        key: &DepthKey,
         quantity: &Quantity,
         available: &Quantity,
     ) -> Result<(), String> {
-        if !self.can_consume(price_raw, quantity, available) {
+        let already = self
+            .consumed
+            .get(key)
+            .map(|q| q.as_raw())
+            .unwrap_or(0);
+
+        let new_total = already
+            .checked_add(quantity.as_raw())
+            .ok_or_else(|| format!(
+                "Virtual depth overflow at {:?}: {} + {}",
+                key, already, quantity.as_raw()
+            ))?;
+
+        if new_total > available.as_raw() {
             return Err(format!(
-                "Virtual depth exceeded at price {}: consumed {} + requested {} > available {}",
-                price_raw,
-                self.consumed.get(&price_raw).map(|q| q.as_raw()).unwrap_or(0),
-                quantity.as_raw(),
-                available.as_raw()
+                "Virtual depth exceeded at {:?}: consumed {} + requested {} > available {}",
+                key, already, quantity.as_raw(), available.as_raw()
             ));
         }
-        let entry = self.consumed.entry(price_raw).or_insert(Quantity::ZERO);
-        *entry = Quantity::from_raw(entry.as_raw() + quantity.as_raw());
+
+        self.consumed.insert(key.clone(), Quantity::from_raw(new_total));
         Ok(())
     }
 

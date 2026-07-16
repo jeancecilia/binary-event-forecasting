@@ -6,6 +6,19 @@ requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "UNLICENSED" }
 
+[tool.uv.workspace]
+members = [
+    "python-packages/contracts-py",
+    "python-packages/source-ingestion",
+    "python-packages/preprocessing",
+    "python-packages/inference",
+    "python-packages/calibration",
+    "python-packages/experiments",
+    "python-packages/reporting",
+    "python-packages/audit-export",
+    "services/intelligence-plane",
+]
+
 [tool.uv]
 dev-dependencies = [
     "pytest>=8",
@@ -34,12 +47,8 @@ select = [
     "B",   # flake8-bugbear
     "C4",  # flake8-comprehensions
     "SIM", # flake8-simplify
-    "TCH", # flake8-type-checking
     "TID", # flake8-tidy-imports
 ]
-
-[tool.ruff.lint.isort]
-known-first-party = ["intelligence_plane", "contracts_py", "source_ingestion", "preprocessing", "inference", "calibration", "experiments", "reporting", "audit_export"]
 
 [tool.pyright]
 typeCheckingMode = "strict"

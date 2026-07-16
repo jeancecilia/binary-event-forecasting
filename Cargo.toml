@@ -93,6 +93,6 @@ unreachable_pub = "warn"
 
 [workspace.lints.clippy]
 disallowed_types = "deny"
+float_arithmetic = "deny"
 unwrap_used = "warn"
 expect_used = "deny"
-# Allow float for uncertainty_coverage_level in protocol only
