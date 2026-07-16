@@ -9,12 +9,9 @@ UTF-8 JSON payload, with explicit schema version.
 
 from __future__ import annotations
 
-import struct
-import socket
 import json
-from typing import Optional
-from datetime import datetime, timezone
-
+import socket
+import struct
 
 MAX_SIGNAL_FRAME_BYTES = 1_048_576  # 1 MiB
 FRAME_HEADER_SIZE = 4
@@ -26,7 +23,7 @@ class IpcClient:
     def __init__(self, socket_path: str, timeout: float = 30.0) -> None:
         self.socket_path = socket_path
         self.timeout = timeout
-        self._sock: Optional[socket.socket] = None
+        self._sock: socket.socket | None = None
 
     def connect(self) -> None:
         """Connect to the Rust core engine socket."""
@@ -55,9 +52,7 @@ class IpcClient:
         resp_len = struct.unpack(">I", resp_header)[0]
 
         if resp_len > MAX_SIGNAL_FRAME_BYTES:
-            raise ValueError(
-                f"Response size {resp_len} exceeds maximum {MAX_SIGNAL_FRAME_BYTES}"
-            )
+            raise ValueError(f"Response size {resp_len} exceeds maximum {MAX_SIGNAL_FRAME_BYTES}")
 
         resp_bytes = self._recv_exact(resp_len)
         return json.loads(resp_bytes.decode("utf-8"))

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel
 
 from .enums import DispositionStatus
@@ -17,5 +17,5 @@ class LifecycleDisposition(BaseModel):
     disposition_status: DispositionStatus
     timestamp: datetime
     transition_id: str
-    detail: Optional[str] = None
-    previous_status: Optional[DispositionStatus] = None
+    detail: str | None = None
+    previous_status: DispositionStatus | None = None

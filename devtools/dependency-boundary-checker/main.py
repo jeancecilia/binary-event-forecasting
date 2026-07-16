@@ -1,19 +1,22 @@
-import tomllib
 import sys
+import tomllib
 from pathlib import Path
 
-LEVELS = {
-    "domain-types": 0,
-    "protocol": 1,
-    "market-state": 2,
-    "forecast-policy": 3,
-    "matching": 3,
-    "ledger": 4,
-    "journal": 5,
-    "replay": 5,
-    "core-engine": 6,
-    "mock-gateway": 6,
+ALLOWED_INTERNAL_DEPS = {
+    "domain-types": set(),
+    "protocol": {"domain-types"},
+    "market-state": {"domain-types", "protocol"},
+    "forecast-policy": {"domain-types", "protocol", "market-state"},
+    "matching": {"domain-types", "protocol", "market-state"},
+    "ledger": {"domain-types", "protocol", "matching"},
+    "journal": {"domain-types", "protocol", "ledger"},
+    "replay": {"domain-types", "protocol", "journal"},
+    "experiment-control": {"protocol"},
+    "telemetry": set(),
+    "core-engine": {"domain-types", "protocol", "market-state", "forecast-policy", "matching", "ledger", "journal", "replay", "experiment-control", "telemetry"},
+    "mock-gateway": {"domain-types", "protocol", "market-state", "forecast-policy", "matching", "ledger", "journal", "replay", "experiment-control", "telemetry"},
 }
+
 
 def check_dependencies():
     errors = []
@@ -24,39 +27,38 @@ def check_dependencies():
         try:
             with open(toml_path, "rb") as f:
                 data = tomllib.load(f)
-            
+
             package_name = data.get("package", {}).get("name")
-            if not package_name or package_name not in LEVELS:
+            if not package_name or package_name not in ALLOWED_INTERNAL_DEPS:
                 continue
-            
-            crate_level = LEVELS[package_name]
-            
+
+            allowed = ALLOWED_INTERNAL_DEPS[package_name]
+
             # Check standard dependencies
             deps = data.get("dependencies", {})
             for dep_name in deps:
-                if dep_name in LEVELS:
-                    dep_level = LEVELS[dep_name]
-                    if dep_level >= crate_level:
-                        errors.append(f"FAIL: {package_name} depends on {dep_name}")
-                        
+                if dep_name in ALLOWED_INTERNAL_DEPS:
+                    if dep_name not in allowed:
+                        errors.append(f"FAIL: {package_name} depends on {dep_name} (not allowed by architecture)")
+
             # Check dev-dependencies
             dev_deps = data.get("dev-dependencies", {})
             for dep_name in dev_deps:
-                if dep_name in LEVELS:
-                    dep_level = LEVELS[dep_name]
-                    if dep_level >= crate_level:
-                        errors.append(f"FAIL (dev): {package_name} depends on {dep_name}")
+                if dep_name in ALLOWED_INTERNAL_DEPS:
+                    if dep_name not in allowed:
+                        errors.append(f"FAIL (dev): {package_name} depends on {dep_name} (not allowed by architecture)")
 
         except Exception as e:
-            pass
-            
+            errors.append(f"FAIL: parsing {toml_path} - {e}")
+
     if errors:
         for err in errors:
             print(err)
         sys.exit(1)
-    
+
     print("Dependency boundary check passed.")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     check_dependencies()

@@ -14,8 +14,8 @@ import sys
 def main() -> int:
     print("Contract validation — stub (implementation in Milestone 2)")
     print("Validates: JSON Schema → Rust serde → Python Pydantic → golden vectors")
-    return 0
+    return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

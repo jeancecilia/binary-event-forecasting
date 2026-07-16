@@ -50,23 +50,7 @@ pub fn match_immediate(
     let price_limit = Price::from_raw(intent.price_limit);
     let is_buy = matches!(intent.book_side, BookSide::Bid);
 
-    let available = match if is_buy {
-        snapshot.available_buy_quantity(&price_limit)
-    } else {
-        snapshot.available_sell_quantity(&price_limit)
-    } {
-        Ok(q) => q,
-        Err(e) => return MatchResult::Rejected { reason: e.to_string() },
-    };
 
-    if available.as_raw() < required_quantity.as_raw() {
-        return MatchResult::Rejected {
-            reason: format!(
-                "Insufficient depth: available={}, required={}",
-                available.as_raw(), required_quantity.as_raw()
-            ),
-        };
-    }
 
     let fill_plan = match build_fill_plan(intent, snapshot, &required_quantity, &state.virtual_depth) {
         Ok(plan) => plan,
@@ -229,6 +213,13 @@ fn build_fill_plan(
 
     if total_filled == 0 {
         return Err(DomainError::DivisionByZero { detail: "No quantity filled".to_string() });
+    }
+
+    if remaining != 0 {
+        return Err(DomainError::InsufficientDepth {
+            available: total_filled,
+            required: required.as_raw(),
+        });
     }
 
     let half_scale = domain_types::PRICE_SCALE as u128 / 2;

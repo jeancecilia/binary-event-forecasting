@@ -61,4 +61,7 @@ pub enum DomainError {
 
     #[error("Rounding error exceeds maximum: actual {actual}, max {max}")]
     RoundingError { actual: u64, max: u64 },
+
+    #[error("Insufficient depth: available={available}, required={required}")]
+    InsufficientDepth { available: u64, required: u64 },
 }

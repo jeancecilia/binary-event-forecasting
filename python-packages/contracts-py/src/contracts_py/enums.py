@@ -1,78 +1,71 @@
-"""Closed enums matching the Rust protocol types."""
+"""Enumerations for the contracts definitions (IPC-003, FCP-002, etc)."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ReceiptStatus(str, Enum):
+class ReceiptStatus(StrEnum):
     ACCEPTED_QUEUED = "AcceptedQueued"
     DUPLICATE_RETRY = "DuplicateRetry"
-    EXPIRED_ON_ARRIVAL = "ExpiredOnArrival"
-    REJECTED_SCHEMA = "RejectedSchema"
-    REJECTED_BOUNDS = "RejectedBounds"
-    REJECTED_CAPACITY = "RejectedCapacity"
-    REJECTED_TARGET_VERSION = "RejectedTargetVersion"
-    REJECTED_RATE_LIMIT = "RejectedRateLimit"
-    REPLAY_SEQUENCE_VIOLATION = "ReplaySequenceViolation"
-    CORE_DEGRADED = "CoreDegraded"
+    VALIDATION_FAILED = "ValidationFailed"
+    AUTHENTICATION_FAILED = "AuthenticationFailed"
+    AUTHORIZATION_FAILED = "AuthorizationFailed"
+    CAPACITY_EXCEEDED = "CapacityExceeded"
+    INTERNAL_ERROR = "InternalError"
+    PARSING_ERROR = "ParsingError"
 
 
-class DispositionStatus(str, Enum):
+class DispositionStatus(StrEnum):
     VALIDATED = "Validated"
     EVALUATED = "Evaluated"
-    ABSTAINED = "Abstained"
-    SIMULATION_SUBMITTED = "SimulationSubmitted"
-    SIMULATED = "Simulated"
-    PARTIALLY_FILLED = "PartiallyFilled"
-    SIMULATION_REJECTED = "SimulationRejected"
-    SIMULATION_FAILED = "SimulationFailed"
-    SUPERSEDED = "Superseded"
-    EVICTED = "Evicted"
-    EXPIRED_IN_QUEUE = "ExpiredInQueue"
+    MATCHED = "Matched"
+    SETTLED = "Settled"
+    EXPIRED = "Expired"
+    CANCELLED = "Cancelled"
+    REJECTED_COST = "RejectedCost"
+    REJECTED_HORIZON = "RejectedHorizon"
+    REJECTED_STATE = "RejectedState"
 
 
-class BookSide(str, Enum):
+class BookSide(StrEnum):
     BID = "Bid"
     ASK = "Ask"
 
 
-class OutcomeSide(str, Enum):
+class OutcomeSide(StrEnum):
     YES = "Yes"
     NO = "No"
 
 
-class OrderClass(str, Enum):
+class OrderClass(StrEnum):
     IMMEDIATE_ALL_OR_NONE = "ImmediateAllOrNone"
     PASSIVE = "Passive"
 
 
-class TimeInForce(str, Enum):
+class TimeInForce(StrEnum):
     IMMEDIATE_OR_CANCEL = "ImmediateOrCancel"
     GOOD_TILL_CANCELLED = "GoodTillCancelled"
-    FILL_OR_KILL = "FillOrKill"
-    DAY = "Day"
+    GOOD_TILL_DATE = "GoodTillDate"
 
 
-class FeedStatus(str, Enum):
+class FeedStatus(StrEnum):
     INITIALIZING = "Initializing"
     SYNCHRONIZED = "Synchronized"
     FRAGMENTED = "Fragmented"
-    DISCONNECTED = "Disconnected"
     STALE = "Stale"
-    FAILED = "Failed"
+    HALTED = "Halted"
 
 
-class ResolutionStatus(str, Enum):
+class ResolutionStatus(StrEnum):
     OPEN = "Open"
     PROPOSED = "Proposed"
     DISPUTED = "Disputed"
-    PENDING_FINALITY = "PendingFinality"
-    FINAL = "Final"
+    RESOLVED = "Resolved"
+    CANCELLED = "Cancelled"
 
 
-class TerminalOutcome(str, Enum):
+class TerminalOutcome(StrEnum):
     YES = "Yes"
     NO = "No"
     VOID = "Void"
     CANCELLED = "Cancelled"
     INVALID = "Invalid"
-    DEFINITION_CHANGED = "DefinitionChanged"

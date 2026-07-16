@@ -16,7 +16,6 @@ struct Cli {
 
 enum LocalBind {
     Tcp(SocketAddr),
-    Unix(PathBuf),
 }
 
 #[tokio::main]
@@ -56,10 +55,6 @@ async fn main() -> anyhow::Result<()> {
         LocalBind::Tcp(addr) => {
             tracing::info!("Binding TCP on loopback: {}", addr);
             mock_gateway::server::run(&addr.to_string()).await?;
-        }
-        LocalBind::Unix(path) => {
-            tracing::info!("Unix socket path: {}", path.display());
-            anyhow::bail!("Unix socket binding not yet implemented for mock gateway");
         }
     }
 

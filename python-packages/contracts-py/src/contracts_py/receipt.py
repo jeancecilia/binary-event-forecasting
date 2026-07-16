@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel
 
 from .enums import ReceiptStatus
@@ -17,4 +17,4 @@ class ReceiptAcknowledgement(BaseModel):
     receipt_status: ReceiptStatus
     timestamp: datetime
     receipt_id: str
-    detail: Optional[str] = None
+    detail: str | None = None

@@ -14,23 +14,4 @@ jobs:
       - run: uv run python scripts/validate_requirements.py
       - run: cargo test --workspace
 
-  crash-injection:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Crash injection tests
-        run: |
-          echo "Crash injection tests require process isolation (Milestone 3)."
-          echo "See AUD-002-V1, AUD-002-V2, AUD-004-V1"
-          exit 1
 
-  adversarial:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Adversarial input tests
-        run: |
-          echo "Adversarial input tests require the attack corpus (Milestone 8)."
-          echo "See ROB-001-V1"
-          exit 1

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Literal
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION: Literal[1] = 1
 PROBABILITY_SCALE: int = 1_000_000
@@ -65,7 +65,7 @@ class ForecastMessage(BaseModel):
     uncertainty_upper: int = Field(ge=0, le=PROBABILITY_SCALE)
     uncertainty_coverage_level: float = Field(ge=0.0, le=1.0)
     uncertainty_method: str
-    abstention_reason: Optional[str] = None
+    abstention_reason: str | None = None
 
     # Lifecycle timestamps
     decision_cutoff_at: datetime
