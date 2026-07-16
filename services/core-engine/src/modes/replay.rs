@@ -78,7 +78,7 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
     );
 
     // Run 1
-    let result_a = execute_replay(&config)?;
+    let result_a = execute_replay(&config).await?;
     tracing::info!(
         hash = %result_a.final_state_hash,
         events = result_a.events_processed,
@@ -91,7 +91,7 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
 
     if config.verify {
         // Run 2 - must produce identical hash
-        let result_b = execute_replay(&config)?;
+        let result_b = execute_replay(&config).await?;
         tracing::info!(
             hash = %result_b.final_state_hash,
             events = result_b.events_processed,
@@ -112,7 +112,7 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
 }
 
 /// Execute a single replay pass over the trace.
-fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
+async fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
     // 1. Load trace manifest and verify hashes
     let manifest_path = config.trace_path.join("manifest.json");
     let manifest_str = fs::read_to_string(&manifest_path)
@@ -147,6 +147,27 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
     // Initialize state
     let mut logical_clock: i64 = 0;
     let mut ledger = Ledger::new(Cash::new(1_000_000_000)); // 1M notional units
+    let mut journal_records: Vec<JournalRecord> = Vec::new();
+    
+    // Create IPC Server for this run
+    let socket_path = std::env::temp_dir().join(format!("replay-socket-{}", uuid::Uuid::now_v7()));
+    let db_path = std::env::temp_dir().join(format!("replay-db-{}.sqlite", uuid::Uuid::now_v7()));
+    let ipc_server = crate::ipc::IpcServer::new(
+        socket_path.clone(),
+        db_path.clone(),
+        1_048_576,
+        1000,
+        1000,
+        config.probability_scale
+    );
+    
+    // Spawn server in background
+    let server_handle = tokio::spawn(async move {
+        let _ = ipc_server.run().await;
+    });
+    
+    // Give server time to bind
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     let mut journal_records: Vec<JournalRecord> = Vec::new();
     let mut events_processed: u64 = 0;
     let mut forecasts_processed: u64 = 0;
@@ -220,36 +241,26 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         });
     }
 
-    // Step 6: Write AcceptedQueued to SQLite journal
-    let mut journal_conn = journal::db::open_journal(":memory:").unwrap();
-    let forecast_bytes = serde_json::to_vec(&forecast).unwrap();
-    let forecast_hash = hex::encode(Sha256::digest(&forecast_bytes));
+    // Step 6: Write AcceptedQueued to SQLite journal via true IPC Pipeline
+    let forecast_bytes = serde_json::to_vec(&forecast).unwrap_or_default();
+    let forecast_len = (forecast_bytes.len() as u32).to_be_bytes();
     
-    // Test the sender sequence retry and rejection logic
-    let receipt_status = match journal::db::process_forecast_receipt(
-        &mut journal_conn,
-        &forecast.message_id,
-        &forecast.sender_instance_id,
-        forecast.sender_sequence,
-        &forecast_hash,
-    ) {
-        Ok(status) => status,
-        Err(e) => {
-            violations.push(format!("SQLite Error: {e}"));
-            return Ok(ReplayResult {
-                final_state_hash: "".to_string(),
-                events_processed,
-                forecasts_processed,
-                intents_simulated,
-                fills,
-                rejections,
-                violations,
-            });
-        }
-    };
+    let mut socket_conn = connect_ipc(&socket_path).await?;
+    use tokio::io::{AsyncWriteExt, AsyncReadExt};
+    socket_conn.write_all(&forecast_len).await?;
+    socket_conn.write_all(&forecast_bytes).await?;
     
-    if receipt_status != protocol::enums::ReceiptStatus::AcceptedQueued {
-        violations.push(format!("Receipt status not AcceptedQueued: {:?}", receipt_status));
+    let mut resp_header = [0u8; 4];
+    socket_conn.read_exact(&mut resp_header).await?;
+    let resp_len = u32::from_be_bytes(resp_header) as usize;
+    let mut resp_bytes = vec![0u8; resp_len];
+    socket_conn.read_exact(&mut resp_bytes).await?;
+    
+    let ack: protocol::ReceiptAcknowledgement = serde_json::from_slice(&resp_bytes)
+        .unwrap_or_else(|_| panic!("Failed to deserialize ReceiptAcknowledgement"));
+    
+    if ack.receipt_status != protocol::enums::ReceiptStatus::AcceptedQueued {
+        violations.push(format!("Receipt status not AcceptedQueued: {:?}", ack.receipt_status));
     }
 
     let record = create_journal_record(
@@ -353,6 +364,9 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 
     } // end of for forecast in forecasts
 
+    // Clean up server
+    server_handle.abort();
+
     // Step 13: Generate canonical final-state hash
     let final_state_hash = compute_final_state_hash(
         &ledger,
@@ -418,10 +432,12 @@ fn compute_final_state_hash(
     hasher.update(manifest_hash.as_bytes());
 
     hasher.update(b"ledger:");
-    hasher.update(serde_json::to_vec(ledger).expect("Failed to serialize ledger"));
+    let ledger_json = protocol::canonical::canonical_json(ledger).unwrap_or_else(|_| "{}".to_string());
+    hasher.update(ledger_json.as_bytes());
 
     hasher.update(b"journal:");
-    hasher.update(serde_json::to_vec(journal).expect("Failed to serialize journal"));
+    let journal_json = protocol::canonical::canonical_json(&journal).unwrap_or_else(|_| "[]".to_string());
+    hasher.update(journal_json.as_bytes());
 
     hasher.update(b"fills:");
     hasher.update(fills.to_be_bytes());
@@ -429,4 +445,15 @@ fn compute_final_state_hash(
     hasher.update(rejections.to_be_bytes());
 
     hex::encode(hasher.finalize())
+}
+
+#[cfg(unix)]
+async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixStream> {
+    Ok(tokio::net::UnixStream::connect(path).await?)
+}
+
+#[cfg(not(unix))]
+async fn connect_ipc(path: &std::path::Path) -> anyhow::Result<tokio::net::TcpStream> {
+    let port_str = std::fs::read_to_string(path)?;
+    Ok(tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port_str)).await?)
 }

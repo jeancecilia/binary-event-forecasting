@@ -37,7 +37,7 @@ pub struct Ledger {
     /// Version of the ledger
     pub version: u64,
     /// Set of applied transition IDs for idempotency
-    pub applied_transitions: std::collections::HashSet<String>,
+    pub applied_transitions: std::collections::BTreeSet<String>,
 }
 
 impl Ledger {
@@ -51,7 +51,7 @@ impl Ledger {
             unrealized_pnl: SignedPnl::ZERO,
             inventory: matching::inventory::Inventory::new(),
             version: 0,
-            applied_transitions: std::collections::HashSet::new(),
+            applied_transitions: std::collections::BTreeSet::new(),
         }
     }
 

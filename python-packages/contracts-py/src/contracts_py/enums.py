@@ -48,23 +48,25 @@ class OrderClass(StrEnum):
 class TimeInForce(StrEnum):
     IMMEDIATE_OR_CANCEL = "ImmediateOrCancel"
     GOOD_TILL_CANCELLED = "GoodTillCancelled"
-    GOOD_TILL_DATE = "GoodTillDate"
+    FILL_OR_KILL = "FillOrKill"
+    DAY = "Day"
 
 
 class FeedStatus(StrEnum):
     INITIALIZING = "Initializing"
     SYNCHRONIZED = "Synchronized"
     FRAGMENTED = "Fragmented"
+    DISCONNECTED = "Disconnected"
     STALE = "Stale"
-    HALTED = "Halted"
+    FAILED = "Failed"
 
 
 class ResolutionStatus(StrEnum):
     OPEN = "Open"
     PROPOSED = "Proposed"
     DISPUTED = "Disputed"
-    RESOLVED = "Resolved"
-    CANCELLED = "Cancelled"
+    PENDING_FINALITY = "PendingFinality"
+    FINAL = "Final"
 
 
 class TerminalOutcome(StrEnum):
@@ -73,3 +75,4 @@ class TerminalOutcome(StrEnum):
     VOID = "Void"
     CANCELLED = "Cancelled"
     INVALID = "Invalid"
+    DEFINITION_CHANGED = "DefinitionChanged"

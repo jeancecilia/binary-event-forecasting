@@ -17,24 +17,29 @@ pub const FRAME_HEADER_SIZE: usize = 4;
 #[allow(dead_code)]
 pub struct IpcServer {
     socket_path: std::path::PathBuf,
+    db_path: std::path::PathBuf,
     max_frame_bytes: usize,
     read_timeout_ms: u64,
     idle_timeout_ms: u64,
+    probability_scale: u64,
 }
 
 impl IpcServer {
-    /// Create a new IPC server.
     pub fn new(
         socket_path: std::path::PathBuf,
+        db_path: std::path::PathBuf,
         max_frame_bytes: usize,
         read_timeout_ms: u64,
         idle_timeout_ms: u64,
+        probability_scale: u64,
     ) -> Self {
         Self {
             socket_path,
+            db_path,
             max_frame_bytes,
             read_timeout_ms,
             idle_timeout_ms,
+            probability_scale,
         }
     }
 
@@ -54,64 +59,132 @@ impl IpcServer {
 
         let listener = UnixListener::bind(&self.socket_path)?;
         
+        // Try to set permissions on UNIX
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut perms) = std::fs::metadata(&self.socket_path).map(|m| m.permissions()) {
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(&self.socket_path, perms);
+        }
+
         loop {
             let (mut socket, _) = listener.accept().await?;
-            // Authenticate (Stub for non-linux, or proper SO_PEERCRED on linux)
-            #[cfg(target_os = "linux")]
-            {
-                // In production, verify peer credentials here.
-            }
-
-            let mut header = [0u8; FRAME_HEADER_SIZE];
-            if let Ok(n) = tokio::time::timeout(
-                std::time::Duration::from_millis(self.read_timeout_ms),
-                socket.read_exact(&mut header)
-            ).await {
-                match n {
-                    Ok(_) => {
-                        let len = u32::from_be_bytes(header) as usize;
-                        if len > self.max_frame_bytes {
-                            tracing::error!("Frame too large: {} bytes", len);
-                            continue;
-                        }
-                        let mut payload = vec![0u8; len];
-                        if let Ok(Ok(_)) = tokio::time::timeout(
-                            std::time::Duration::from_millis(self.read_timeout_ms),
-                            socket.read_exact(&mut payload)
-                        ).await {
-                            // Deserialize & Validate
-                            if let Ok(msg) = serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
-                                // TODO: dispatch message to journal
-                                
-                                let receipt = protocol::ReceiptAcknowledgement {
-                                    schema_version: 1,
-                                    message_id: msg.message_id.clone(),
-                                    receipt_status: protocol::enums::ReceiptStatus::AcceptedQueued,
-                                    timestamp: chrono::Utc::now(),
-                                    receipt_id: uuid::Uuid::now_v7().to_string(),
-                                    detail: None,
-                                };
-                                
-                                if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
-                                    let resp_len = (resp_bytes.len() as u32).to_be_bytes();
-                                    let _ = socket.write_all(&resp_len).await;
-                                    let _ = socket.write_all(&resp_bytes).await;
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => tracing::error!("Failed to read frame header: {e}"),
-                }
-            }
+            Self::handle_connection(
+                socket,
+                self.idle_timeout_ms,
+                self.max_frame_bytes,
+                self.read_timeout_ms,
+                self.probability_scale,
+                self.db_path.clone()
+            ).await;
         }
     }
 
     #[cfg(not(unix))]
     pub async fn run(&self) -> anyhow::Result<()> {
+        use tokio::net::TcpListener;
+        
         tracing::info!(
-            "IPC server starting on {} (Windows stub)",
-            self.socket_path.display()
+            "IPC server starting on 127.0.0.1:0 (Windows TCP fallback)"
         );
-        Ok(())
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        
+        // Write the bound port to a file so the client can find it
+        std::fs::write(&self.socket_path, listener.local_addr()?.port().to_string())?;
+
+        loop {
+            let (mut socket, _) = listener.accept().await?;
+            Self::handle_connection(
+                socket,
+                self.idle_timeout_ms,
+                self.max_frame_bytes,
+                self.read_timeout_ms,
+                self.probability_scale,
+                self.db_path.clone()
+            ).await;
+        }
+    }
+
+    async fn handle_connection<S>(
+        mut socket: S,
+        idle_timeout_ms: u64,
+        max_frame_bytes: usize,
+        read_timeout_ms: u64,
+        probability_scale: u64,
+        db_path: std::path::PathBuf,
+    ) where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut header = [0u8; FRAME_HEADER_SIZE];
+        if let Ok(n) = tokio::time::timeout(
+            std::time::Duration::from_millis(idle_timeout_ms),
+            socket.read_exact(&mut header)
+        ).await {
+            match n {
+                Ok(_) => {
+                    let len = u32::from_be_bytes(header) as usize;
+                    if len == 0 || len > max_frame_bytes {
+                        tracing::error!("Invalid frame length: {} bytes", len);
+                        return;
+                    }
+                    
+                    let mut payload = vec![0u8; len];
+                    if let Ok(Ok(_)) = tokio::time::timeout(
+                        std::time::Duration::from_millis(read_timeout_ms),
+                        socket.read_exact(&mut payload)
+                    ).await {
+                        // Deserialize & Validate
+                        if let Ok(msg) = serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
+                            // Validate Message
+                            let mut status = protocol::enums::ReceiptStatus::AcceptedQueued;
+                            if msg.validate(probability_scale).is_err() {
+                                status = protocol::enums::ReceiptStatus::RejectedBounds;
+                            }
+
+                            // Open DB and store receipt durably
+                            if status == protocol::enums::ReceiptStatus::AcceptedQueued {
+                                if let Ok(mut conn) = journal::db::open_journal(db_path.to_str().unwrap()) {
+                                    let timestamp = msg.forecast_emitted_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                                    let payload_hash = protocol::canonical::canonical_hash(&msg).unwrap_or_else(|_| "0000".to_string());
+                                    if let Ok(db_status) = journal::db::process_forecast_receipt(
+                                        &mut conn,
+                                        &msg.message_id,
+                                        &msg.sender_instance_id,
+                                        msg.sender_sequence,
+                                        &payload_hash,
+                                        &timestamp
+                                    ) {
+                                        status = db_status;
+                                    } else {
+                                        status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                    }
+                                } else {
+                                    status = protocol::enums::ReceiptStatus::CoreDegraded;
+                                }
+                            }
+                            
+                            let receipt_id = format!("receipt-{}", msg.message_id);
+                            let receipt = protocol::ReceiptAcknowledgement {
+                                schema_version: 1,
+                                message_id: msg.message_id.clone(),
+                                receipt_status: status,
+                                timestamp: msg.forecast_emitted_at, // deterministic based on message
+                                receipt_id,
+                                detail: None,
+                            };
+                            
+                            if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
+                                let resp_len = (resp_bytes.len() as u32).to_be_bytes();
+                                let _ = socket.write_all(&resp_len).await;
+                                let _ = socket.write_all(&resp_bytes).await;
+                            }
+                        }
+                    }
+                }
+                Err(e) => tracing::error!("Failed to read frame header: {e}"),
+            }
+        } else {
+            tracing::debug!("IPC idle timeout");
+        }
     }
 }

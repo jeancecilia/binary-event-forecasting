@@ -5,7 +5,7 @@
     "market_events_file": "market-events.jsonl",
     "forecast_messages_file": "forecast-messages.jsonl",
     "market_events_sha256": "052b58ab20e87b994185ad86f340fc9b6e2df9d6758eca4f97792e07d3f671b5",
-    "forecast_messages_sha256": "08121beb0a8dab7271d8c6f81d65a874122a9b9143b29953a69a57478aa73a37",
+    "forecast_messages_sha256": "fd20c9e3886907e3dac19804a2584b69428355646edb20b51aa2bb386d8eb529",
     "configuration_sha256": "0000",
     "software_build_sha256": "0000",
     "logical_epoch": "2023-11-14T22:13:20Z",

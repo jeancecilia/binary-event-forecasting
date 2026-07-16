@@ -96,6 +96,7 @@ pub fn process_forecast_receipt(
     sender_instance_id: &str,
     sender_sequence: u64,
     payload_hash: &str,
+    timestamp: &str,
 ) -> Result<protocol::enums::ReceiptStatus, rusqlite::Error> {
     let tx = conn.transaction()?;
 
@@ -130,15 +131,15 @@ pub fn process_forecast_receipt(
     // Insert receipt
     tx.execute(
         "INSERT INTO message_receipts (message_id, receipt_status, received_at, payload_hash) 
-         VALUES (?1, ?2, datetime('now'), ?3)",
-        [message_id, "AcceptedQueued", payload_hash],
+         VALUES (?1, ?2, ?3, ?4)",
+        [message_id, "AcceptedQueued", timestamp, payload_hash],
     )?;
 
     // Update sender sequence
     tx.execute(
         "INSERT INTO sender_sequences (sender_instance_id, sender_sequence, last_seen_at) 
-         VALUES (?1, ?2, datetime('now'))",
-        [sender_instance_id, &sender_sequence.to_string()],
+         VALUES (?1, ?2, ?3)",
+        [sender_instance_id, &sender_sequence.to_string(), timestamp],
     )?;
 
     tx.commit()?;
