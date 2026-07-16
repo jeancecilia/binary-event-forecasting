@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 //! IPC server module.
 //!
 //! Implements the AF_UNIX IPC server with:
