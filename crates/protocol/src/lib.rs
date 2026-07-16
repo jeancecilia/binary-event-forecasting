@@ -10,18 +10,19 @@
 //! - [`LifecycleDisposition`] — Terminal lifecycle state
 //! - [`SimulationIntent`] — Deterministic intent derived from forecast
 
+pub mod canonical;
+pub mod disposition;
 pub mod enums;
 pub mod forecast;
 pub mod framing;
 pub mod intent;
-pub mod receipt;
-pub mod disposition;
 pub mod market_event;
 pub mod mock;
-
-mod canonical;
+pub mod receipt;
+pub mod manifest;
 
 pub use enums::*;
+pub use canonical::{canonical_hash, canonical_json};
 pub use forecast::ForecastMessage;
 pub use intent::SimulationIntent;
 pub use receipt::ReceiptAcknowledgement;

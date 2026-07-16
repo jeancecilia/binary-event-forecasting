@@ -1,0 +1,14 @@
+{
+    "schema_version": 1,
+    "trace_id": "golden-vertical-slice-v1",
+    "trace_format_version": "v1",
+    "market_events_file": "market-events.jsonl",
+    "forecast_messages_file": "forecast-messages.jsonl",
+    "market_events_sha256": "052b58ab20e87b994185ad86f340fc9b6e2df9d6758eca4f97792e07d3f671b5",
+    "forecast_messages_sha256": "fdf0f5b6c01adb1ed47b0ef1f18a35c19085d143f78b0b533084e06dbbe7fb20",
+    "configuration_sha256": "0000",
+    "software_build_sha256": "0000",
+    "logical_epoch": "2023-11-14T22:13:20Z",
+    "expected_event_count": 1,
+    "expected_forecast_count": 1
+}

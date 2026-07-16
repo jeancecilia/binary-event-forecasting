@@ -8,6 +8,7 @@
 pub mod immediate;
 pub mod passive_queue;
 pub mod virtual_depth;
+pub mod cost_model;
 
 use domain_types::{Cash, Notional, Price, Quantity, ReservedCash};
 

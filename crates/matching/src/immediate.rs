@@ -6,7 +6,7 @@
 use domain_types::{Cash, DomainError, Notional, Price, Quantity, ReservedCash};
 use market_state::MarketSnapshot;
 use protocol::{SimulationIntent, enums::BookSide};
-use super::{MatchResult, VirtualMatchingState, virtual_depth::DepthKey};
+use super::{MatchResult, VirtualMatchingState, virtual_depth::DepthKey, cost_model::CostModel};
 
 /// A pre-validated fill plan with per-level quantities.
 #[derive(Debug, Clone)]
@@ -39,6 +39,7 @@ pub fn match_immediate(
     intent: &SimulationIntent,
     snapshot: &MarketSnapshot,
     state: &mut VirtualMatchingState,
+    cost_model: &dyn CostModel,
 ) -> MatchResult {
     if !snapshot.is_usable() {
         return MatchResult::Rejected {
@@ -58,7 +59,11 @@ pub fn match_immediate(
     };
 
     let mut candidate = state.clone();
-    let cash_required = Cash::new(fill_plan.notional.as_raw() as i128);
+    
+    let cash_required = match cost_model.calculate_total_cash(fill_plan.notional) {
+        Ok(c) => c,
+        Err(e) => return MatchResult::Rejected { reason: format!("Cost model error: {e}") },
+    };
 
     if is_buy {
         if !candidate.free_cash.is_at_least(cash_required.as_raw()) {

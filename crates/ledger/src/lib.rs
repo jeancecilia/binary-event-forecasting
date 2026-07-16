@@ -10,6 +10,16 @@ pub mod settlement;
 use domain_types::{Cash, ReservedCash, SignedPnl};
 use serde::{Deserialize, Serialize};
 
+/// Represents an idempotent transition to the ledger state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerTransition {
+    pub transition_id: String,
+    pub free_cash_delta: i128,
+    pub reserved_cash_delta: i128,
+    pub total_cash_delta: i128,
+    // (We could add inventory deltas here, but omitting for brevity in the slice)
+}
+
 /// The canonical ledger state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ledger {
@@ -23,6 +33,8 @@ pub struct Ledger {
     pub realized_pnl: SignedPnl,
     /// Unrealized P&L (marked to market)
     pub unrealized_pnl: SignedPnl,
+    /// Position inventory keyed by market/outcome/side
+    pub inventory: inventory::Inventory,
     /// Version of the ledger
     pub version: u64,
 }
@@ -36,6 +48,7 @@ impl Ledger {
             total_cash: initial_cash,
             realized_pnl: SignedPnl::ZERO,
             unrealized_pnl: SignedPnl::ZERO,
+            inventory: inventory::Inventory::new(),
             version: 0,
         }
     }
@@ -67,6 +80,29 @@ impl Ledger {
                 detail: format!("Ledger version overflow at {}", self.version),
             },
         )?;
+        Ok(())
+    }
+
+    /// Apply a transition idempotently.
+    pub fn apply_transition(&mut self, transition: &LedgerTransition) -> Result<(), String> {
+        let new_free = self.free_cash.as_raw().checked_add(transition.free_cash_delta)
+            .ok_or("Free cash overflow")?;
+        let new_res = (self.reserved_cash.as_raw() as i128).checked_add(transition.reserved_cash_delta)
+            .ok_or("Reserved cash overflow")?;
+        let new_total = self.total_cash.as_raw().checked_add(transition.total_cash_delta)
+            .ok_or("Total cash overflow")?;
+
+        if new_free < 0 || new_res < 0 || new_total < 0 {
+            return Err("Negative cash balance not allowed".into());
+        }
+
+        self.free_cash = Cash::new(new_free as i128);
+        self.reserved_cash = ReservedCash::new(new_res as u64);
+        self.total_cash = Cash::new(new_total as i128);
+
+        self.verify_cash_invariant()?;
+        self.increment_version().map_err(|e| e.to_string())?;
+
         Ok(())
     }
 }

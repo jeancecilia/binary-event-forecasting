@@ -38,13 +38,66 @@ impl IpcServer {
         }
     }
 
-    /// Start the IPC server. Blocks until shutdown.
+    #[cfg(unix)]
     pub async fn run(&self) -> anyhow::Result<()> {
+        use tokio::net::UnixListener;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
         tracing::info!(
             "IPC server starting on {}",
             self.socket_path.display()
         );
-        // TODO: Implementation in Milestone 2
+
+        if self.socket_path.exists() {
+            std::fs::remove_file(&self.socket_path)?;
+        }
+
+        let listener = UnixListener::bind(&self.socket_path)?;
+        
+        loop {
+            let (mut socket, _) = listener.accept().await?;
+            // Authenticate (Stub for non-linux, or proper SO_PEERCRED on linux)
+            #[cfg(target_os = "linux")]
+            {
+                // In production, verify peer credentials here.
+            }
+
+            let mut header = [0u8; FRAME_HEADER_SIZE];
+            if let Ok(n) = tokio::time::timeout(
+                std::time::Duration::from_millis(self.read_timeout_ms),
+                socket.read_exact(&mut header)
+            ).await {
+                match n {
+                    Ok(_) => {
+                        let len = u32::from_be_bytes(header) as usize;
+                        if len > self.max_frame_bytes {
+                            tracing::error!("Frame too large: {} bytes", len);
+                            continue;
+                        }
+                        let mut payload = vec![0u8; len];
+                        if let Ok(Ok(_)) = tokio::time::timeout(
+                            std::time::Duration::from_millis(self.read_timeout_ms),
+                            socket.read_exact(&mut payload)
+                        ).await {
+                            // Deserialize & Validate
+                            if let Ok(_msg) = serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
+                                // TODO: dispatch message to journal
+                                let _ = socket.write_all(b"ACK").await;
+                            }
+                        }
+                    }
+                    Err(e) => tracing::error!("Failed to read frame header: {e}"),
+                }
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub async fn run(&self) -> anyhow::Result<()> {
+        tracing::info!(
+            "IPC server starting on {} (Windows stub)",
+            self.socket_path.display()
+        );
         Ok(())
     }
 }

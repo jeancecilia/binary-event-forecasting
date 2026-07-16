@@ -25,11 +25,12 @@ use chrono::{DateTime, Utc};
 use domain_types::{Cash, Price, Quantity, ProbabilityScaled};
 use forecast_policy::{apply_policy, ForecastPolicyConfig, PolicyContext, SizingRule};
 use journal::JournalRecord;
-use ledger::Ledger;
-use market_state::{MarketSnapshot, PriceLevel};
-use matching::{immediate::match_immediate, MatchResult, VirtualMatchingState};
-use protocol::{ForecastMessage, enums::FeedStatus};
+use ledger::{Ledger, LedgerTransition};
+use market_state::{MarketSnapshot, PriceLevel, order_book::OrderBookBuilder};
+use matching::{immediate::match_immediate, MatchResult, VirtualMatchingState, cost_model::{CostModel, FixedBpsCostModel}};
+use protocol::{ForecastMessage, enums::FeedStatus, manifest::TraceManifest};
 use sha2::{Digest, Sha256};
+use std::fs;
 use std::path::PathBuf;
 
 /// Configuration for replay mode.
@@ -111,6 +112,37 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
 
 /// Execute a single replay pass over the trace.
 fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
+    // 1. Load trace manifest and verify hashes
+    let manifest_path = config.trace_path.join("manifest.json");
+    let manifest_str = fs::read_to_string(&manifest_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read manifest: {e}"))?;
+    
+    let manifest: TraceManifest = serde_json::from_str(&manifest_str)
+        .map_err(|e| anyhow::anyhow!("Invalid manifest schema: {e}"))?;
+    
+    manifest.validate_schema().map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let events_path = config.trace_path.join(&manifest.market_events_file);
+    let forecasts_path = config.trace_path.join(&manifest.forecast_messages_file);
+
+    let events_bytes = fs::read(&events_path)?;
+    let forecasts_bytes = fs::read(&forecasts_path)?;
+
+    let events_hash = hex::encode(Sha256::digest(&events_bytes));
+    let forecasts_hash = hex::encode(Sha256::digest(&forecasts_bytes));
+
+    if events_hash != manifest.market_events_sha256 {
+        anyhow::bail!("Market events hash mismatch: expected {}, got {}", manifest.market_events_sha256, events_hash);
+    }
+    if forecasts_hash != manifest.forecast_messages_sha256 {
+        anyhow::bail!("Forecast messages hash mismatch: expected {}, got {}", manifest.forecast_messages_sha256, forecasts_hash);
+    }
+
+    tracing::info!("Trace manifest validated and artifact hashes verified.");
+
+    let events_str = String::from_utf8(events_bytes).unwrap();
+    let forecasts_str = String::from_utf8(forecasts_bytes).unwrap();
+
     // Initialize state
     let mut logical_clock: i64 = 0;
     let mut ledger = Ledger::new(Cash::new(1_000_000_000)); // 1M notional units
@@ -122,16 +154,25 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
     let mut rejections: u64 = 0;
     let mut violations: Vec<String> = Vec::new();
 
-    // Create a sample snapshot for the replay
-    // In production, this would be loaded from Parquet trace files
-    let snapshot = create_sample_snapshot(logical_clock);
-    if !snapshot.is_usable() {
-        violations.push("Sample snapshot not in Synchronized state".to_string());
-        // In production, this would abort the replay
-    }
+    let events: Vec<protocol::MarketEvent> = events_str
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
 
+    let mut builder = OrderBookBuilder::new(
+        "market-replay-001",
+        "yes",
+        "sha256:replay-target-v1",
+    );
+    builder.apply_events(&events).unwrap();
+
+    let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock)).unwrap();
+    
     // Create a sample forecast
-    let forecast = create_sample_forecast();
+    let forecast: ForecastMessage = serde_json::from_str(
+        forecasts_str.lines().next().unwrap()
+    ).unwrap();
     forecasts_processed += 1;
 
     // Step 5: Validate the forecast
@@ -178,19 +219,20 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
             logical_clock += 1;
 
             // Step 8: Reconstruct order book immediately before arrival
-            let snapshot = create_sample_snapshot(logical_clock);
+            let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock)).unwrap();
 
             // Step 9: Execute all-or-none match
             let mut matching_state = VirtualMatchingState::new(
                 Cash::new(1_000_000_000),
                 Quantity::from_raw(1_000_000_000),
             );
-            let match_result = match_immediate(&intent, &snapshot, &mut matching_state);
+            let cost_model = FixedBpsCostModel::new(10); // 10 bps fee
+            let match_result = match_immediate(&intent, &snapshot, &mut matching_state, &cost_model);
 
             let transition_id = format!("transition-{}", logical_clock);
 
             match match_result {
-                MatchResult::Filled { .. } => {
+                MatchResult::Filled { cash_reserved, .. } => {
                     fills += 1;
 
                     // Step 10: Write DispositionPlanned
@@ -204,7 +246,13 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
                     events_processed += 1;
 
                     // Step 11: Apply idempotent ledger transition
-                    ledger.increment_version()
+                    let transition = LedgerTransition {
+                        transition_id: transition_id.clone(),
+                        free_cash_delta: -(cash_reserved.as_raw() as i128),
+                        reserved_cash_delta: cash_reserved.as_raw() as i128,
+                        total_cash_delta: 0,
+                    };
+                    ledger.apply_transition(&transition)
                         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
                     // Step 12: Write DispositionCommitted
@@ -262,92 +310,7 @@ fn logical_time_to_utc(tick: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(seconds, 0).unwrap_or(epoch)
 }
 
-/// Create a sample market snapshot for replay testing.
-fn create_sample_snapshot(logical_clock: i64) -> MarketSnapshot {
-    MarketSnapshot {
-        market_id: "market-replay-001".to_string(),
-        contract_or_outcome_id: "yes".to_string(),
-        snapshot_version: 1,
-        feed_generation: 1,
-        source_sequence: Some(1),
-        source_timestamp: logical_time_to_utc(logical_clock),
-        logical_timestamp: logical_clock,
-        sync_status: FeedStatus::Synchronized,  // Now accepted by is_usable()
-        bids: vec![
-            PriceLevel {
-                price: Price::from_raw(60_000_000),
-                quantity: Quantity::from_raw(500),
-                order_count: Some(3),
-            },
-            PriceLevel {
-                price: Price::from_raw(55_000_000),
-                quantity: Quantity::from_raw(300),
-                order_count: Some(2),
-            },
-        ],
-        asks: vec![
-            PriceLevel {
-                price: Price::from_raw(65_000_000),
-                quantity: Quantity::from_raw(400),
-                order_count: Some(2),
-            },
-            PriceLevel {
-                price: Price::from_raw(70_000_000),
-                quantity: Quantity::from_raw(200),
-                order_count: Some(1),
-            },
-        ],
-        target_definition_version: "sha256:replay-target-v1".to_string(),
-    }
-}
 
-/// Create a sample forecast message for replay testing.
-fn create_sample_forecast() -> ForecastMessage {
-    let t0 = logical_time_to_utc(0);
-    let t1 = logical_time_to_utc(1);
-    let t2 = logical_time_to_utc(2);
-    let t3 = logical_time_to_utc(100);
-
-    ForecastMessage {
-        schema_version: 1,
-        message_id: "replay-forecast-001".to_string(),
-        sender_instance_id: "replay-python-001".to_string(),
-        sender_sequence: 1,
-        market_id: "market-replay-001".to_string(),
-        contract_or_outcome_id: "yes".to_string(),
-        market_definition_version: "sha256:replay-target-v1".to_string(),
-        event_id: "event-replay-001".to_string(),
-        underlying_event_group_id: "group-replay-001".to_string(),
-        forecast_target: "Will the replay produce a deterministic hash?".to_string(),
-        forecast_horizon: "1h".to_string(),
-        source_id: "replay-source-001".to_string(),
-        source_version: "v1".to_string(),
-        evidence_set_hash: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".to_string(),
-        published_at: t0,
-        first_source_available_at: t0,
-        ingested_at: t1,
-        revision_id: "rev-replay-001".to_string(),
-        model_artifact_hash: "sha256:replay-model".to_string(),
-        model_training_cutoff: logical_time_to_utc(-1000),
-        ensemble_version: "v1".to_string(),
-        component_model_versions: serde_json::json!({"base": "v1"}),
-        prompt_version: "v1".to_string(),
-        retrieval_corpus_version: "v1".to_string(),
-        calibration_model_version: "v1".to_string(),
-        calibration_training_cutoff: logical_time_to_utc(-1000),
-        raw_model_probability: 650_000,
-        calibrated_probability: 625_000,
-        uncertainty_lower: 570_000,
-        uncertainty_upper: 680_000,
-        uncertainty_coverage_level: 0.90,
-        uncertainty_method: "conformal".to_string(),
-        abstention_reason: None,
-        decision_cutoff_at: t0,
-        forecast_created_at: t1,
-        forecast_emitted_at: t2,
-        expires_at: t3,
-    }
-}
 
 /// Create a journal record for the replay.
 fn create_journal_record(

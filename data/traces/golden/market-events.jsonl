@@ -1,0 +1,1 @@
+{"event_id":"me1","market_id":"market-replay-001","event_type":"order_book_snapshot","source_timestamp":"2023-11-14T22:13:20Z","logical_timestamp":1,"source_sequence":1,"payload":{"bids":[{"price":60000000,"quantity":500}],"asks":[{"price":65000000,"quantity":400}]}}

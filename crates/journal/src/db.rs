@@ -89,3 +89,47 @@ pub fn open_journal(path: &str) -> Result<Connection, rusqlite::Error> {
 
     Ok(conn)
 }
+
+/// Process a forecast receipt transaction.
+pub fn process_forecast_receipt(
+    conn: &mut Connection,
+    message_id: &str,
+    sender_instance_id: &str,
+    sender_sequence: u64,
+    payload_hash: &str,
+) -> Result<(), rusqlite::Error> {
+    let tx = conn.transaction()?;
+
+    // Check sender sequence
+    let current_seq: Option<u64> = tx.query_row(
+        "SELECT MAX(sender_sequence) FROM sender_sequences WHERE sender_instance_id = ?1",
+        [sender_instance_id],
+        |row| row.get(0),
+    ).ok().flatten();
+
+    if let Some(seq) = current_seq {
+        if sender_sequence <= seq {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error { code: rusqlite::ffi::ErrorCode::ConstraintViolation, extended_code: 0 },
+                Some("Sender sequence regression".to_string())
+            ));
+        }
+    }
+
+    // Insert receipt (will fail on duplicate message_id due to PRIMARY KEY)
+    tx.execute(
+        "INSERT INTO message_receipts (message_id, receipt_status, received_at, payload_hash) 
+         VALUES (?1, ?2, datetime('now'), ?3)",
+        [message_id, "AcceptedQueued", payload_hash],
+    )?;
+
+    // Update sender sequence
+    tx.execute(
+        "INSERT INTO sender_sequences (sender_instance_id, sender_sequence, last_seen_at) 
+         VALUES (?1, ?2, datetime('now'))",
+        [sender_instance_id, &sender_sequence.to_string()],
+    )?;
+
+    tx.commit()?;
+    Ok(())
+}

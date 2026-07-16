@@ -14,6 +14,7 @@ pub const PROBABILITY_SCALE_V1: u64 = 1_000_000;
 /// This is NOT itself a simulation intent. It must be transformed
 /// through a deterministic forecast-to-intent policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ForecastMessage {
     // ── Protocol identity ──
     pub schema_version: u32,
@@ -117,6 +118,10 @@ impl ForecastMessage {
                 expected: crate::SCHEMA_VERSION,
                 got: self.schema_version,
             });
+        }
+        
+        if self.message_id.is_empty() || self.sender_instance_id.is_empty() || self.market_id.is_empty() {
+            return Err(ForecastValidationError::MissingField { field: "ID fields cannot be empty".into() });
         }
 
         // Validate probability bounds invariant

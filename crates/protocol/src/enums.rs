@@ -70,7 +70,7 @@ pub enum BookSide {
 }
 
 /// Outcome side for a binary event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OutcomeSide {
     Yes,
