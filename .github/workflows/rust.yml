@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace -- --ignored proptest || true
+      - run: cargo test --workspace -- --ignored proptest
 
   dependency-check:
     runs-on: ubuntu-latest

@@ -10,7 +10,7 @@
 //! Identical inputs produce bit-identical intents.
 
 use chrono::{DateTime, Utc};
-use domain_types::{Price, Quantity, ProbabilityScaled};
+use domain_types::{Quantity, ProbabilityScaled};
 use protocol::{ForecastMessage, SimulationIntent, enums::*};
 
 /// Context provided by the caller (logical clock or latency model).

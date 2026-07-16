@@ -3,7 +3,8 @@
 //! Entry point for the mock gateway binary.
 
 use clap::Parser;
-use std::net::ToSocketAddrs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser)]
@@ -13,6 +14,12 @@ struct Cli {
     /// Path to configuration file
     #[arg(short, long, default_value = "config/mock-gateway.toml")]
     config: std::path::PathBuf,
+}
+
+/// Validated local bind target.
+enum LocalBind {
+    Tcp(SocketAddr),
+    Unix(PathBuf),
 }
 
 #[tokio::main]
@@ -41,6 +48,9 @@ async fn main() -> anyhow::Result<()> {
     config.validate_environment()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    // Validate local binding
+    let bind = validate_and_resolve_bind(&config.bind_address)?;
+
     tracing::info!(
         environment = %config.environment,
         scenario_id = %config.scenario_id,
@@ -49,58 +59,71 @@ async fn main() -> anyhow::Result<()> {
         "Mock gateway initializing"
     );
 
-    // Enforce local-only binding using proper socket address parsing
-    let bind_addr = config.bind_address.clone();
-    validate_local_bind(&bind_addr)?;
-
-    mock_gateway::server::run(&config.bind_address).await?;
+    match bind {
+        LocalBind::Tcp(addr) => {
+            tracing::info!("Binding TCP on loopback: {}", addr);
+            mock_gateway::server::run(&addr.to_string()).await?;
+        }
+        LocalBind::Unix(path) => {
+            tracing::info!("Binding Unix socket: {}", path.display());
+            anyhow::bail!("Unix socket binding not yet implemented for mock gateway");
+        }
+    }
 
     Ok(())
 }
 
-/// Validate that the bind address is strictly local.
+/// Validate that the bind address is strictly local and does not perform DNS resolution.
 ///
-/// Accepts only loopback addresses (127.0.0.1, ::1) or localhost.
-/// Rejects 0.0.0.0, external IPs, and any address that resolves externally.
-fn validate_local_bind(address: &str) -> anyhow::Result<()> {
-    // Handle AF_UNIX paths
+/// Accepts:
+/// - Literal "127.0.0.1:PORT" or "[::1]:PORT"
+/// - Literal "localhost:PORT" (resolved without DNS to 127.0.0.1)
+/// - Unix socket paths starting with '/' or './'
+///
+/// Rejects:
+/// - "0.0.0.0:PORT"
+/// - External IP addresses
+/// - Hostnames that require DNS resolution
+fn validate_and_resolve_bind(address: &str) -> anyhow::Result<LocalBind> {
+    // Unix socket path
     if address.starts_with('/') || address.starts_with("./") || address.starts_with("../") {
-        return Ok(());
+        return Ok(LocalBind::Unix(PathBuf::from(address)));
     }
 
-    // Parse as socket address
-    let addrs: Vec<_> = match address.to_socket_addrs() {
-        Ok(addrs) => addrs.collect(),
-        Err(_) => {
-            // If we can't parse it and it's not a Unix path, reject
-            anyhow::bail!(
-                "Cannot parse bind address '{}'. Must be a loopback address or AF_UNIX path.",
-                address
-            );
+    // "localhost" is the only allowed hostname
+    let (host_part, port_str) = address
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("Invalid bind address format: '{}'. Expected host:port.", address))?;
+
+    let ip: IpAddr = if host_part == "localhost" {
+        // Resolve localhost to 127.0.0.1 without DNS
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+    } else {
+        // Try parsing as a literal IP
+        match host_part.parse::<IpAddr>() {
+            Ok(ip) => ip,
+            Err(_) => {
+                // Reject any hostname that isn't "localhost"
+                anyhow::bail!(
+                    "Mock gateway must bind to localhost or a loopback IP only. \
+                     Got hostname '{}' which is not 'localhost'. \
+                     DNS resolution of arbitrary hostnames is prohibited (DEM-001, DEM-002).",
+                    host_part
+                );
+            }
         }
     };
 
-    if addrs.is_empty() {
-        anyhow::bail!("Bind address '{}' resolved to no addresses.", address);
+    if !ip.is_loopback() {
+        anyhow::bail!(
+            "Mock gateway must bind to loopback only. Got IP {}, which is not a loopback address.",
+            ip
+        );
     }
 
-    for addr in &addrs {
-        let ip = addr.ip();
-        if !ip.is_loopback() {
-            anyhow::bail!(
-                "Mock gateway must bind to loopback only. Got: {} (resolved: {}). \
-                 External binding is prohibited (DEM-001, DEM-002).",
-                address,
-                addr
-            );
-        }
-    }
+    let port: u16 = port_str.parse().map_err(|_| {
+        anyhow::anyhow!("Invalid port: '{}'", port_str)
+    })?;
 
-    tracing::info!(
-        "Local bind validated: {} resolves to {:?}",
-        address,
-        addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>()
-    );
-
-    Ok(())
+    Ok(LocalBind::Tcp(SocketAddr::new(ip, port)))
 }

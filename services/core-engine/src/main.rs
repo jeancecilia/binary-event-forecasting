@@ -21,7 +21,7 @@ struct Cli {
 enum Commands {
     /// Run in replay mode (deterministic offline replay)
     Replay {
-        /// Path to trace directory
+        /// Path to trace directory (overrides config)
         #[arg(long)]
         trace: Option<std::path::PathBuf>,
         /// Verify replay determinism
@@ -38,7 +38,6 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,core_engine=debug"));
 
@@ -48,6 +47,16 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // Load configuration
+    let core_config = core_engine::CoreConfig::from_file(&cli.config)?;
+
+    tracing::info!(
+        mode = ?core_config.mode,
+        socket = %core_config.socket_path.display(),
+        journal = %core_config.journal_path.display(),
+        "Core engine initializing"
+    );
 
     match cli.command.unwrap_or(Commands::Replay {
         trace: None,

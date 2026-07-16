@@ -1,6 +1,6 @@
 # Mock Gateway Dockerfile
 
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:1.85-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ RUN mkdir -p crates/domain-types/src crates/protocol/src crates/market-state/src
     crates/telemetry/src services/core-engine/src services/mock-gateway/src
 RUN echo 'fn main() {}' > services/mock-gateway/src/main.rs
 RUN echo 'fn main() {}' > services/core-engine/src/main.rs
-RUN cargo build --release --bin mock-gateway 2>/dev/null || true
+RUN cargo build --release --bin mock-gateway || true
 RUN rm services/mock-gateway/src/main.rs services/core-engine/src/main.rs
 
 # Copy actual source
