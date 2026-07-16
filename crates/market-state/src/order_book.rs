@@ -20,6 +20,8 @@ pub struct OrderBookBuilder {
     pub sync_status: FeedStatus,
     pub target_definition_version: String,
     pub source_sequence: Option<u64>,
+    pub expected_sequence: Option<u64>,
+    pub processed_event_ids: std::collections::HashSet<String>,
 }
 
 impl OrderBookBuilder {
@@ -34,6 +36,8 @@ impl OrderBookBuilder {
             target_definition_version: target_definition.to_string(),
             sync_status: FeedStatus::Initializing,
             source_sequence: None,
+            expected_sequence: None,
+            processed_event_ids: std::collections::HashSet::new(),
         }
     }
 
@@ -55,6 +59,22 @@ impl OrderBookBuilder {
     }
 
     fn apply_event(&mut self, ev: &MarketEvent) -> Result<(), String> {
+        if !self.processed_event_ids.insert(ev.event_id.clone()) {
+            return Err(format!("Duplicate event ID: {}", ev.event_id));
+        }
+
+        if let Some(seq) = ev.source_sequence {
+            if let Some(expected) = self.expected_sequence {
+                if seq > expected {
+                    return Err(format!("Sequence gap detected: expected {}, got {}", expected, seq));
+                }
+                if seq < expected {
+                    return Err(format!("Sequence regression detected: expected {}, got {}", expected, seq));
+                }
+            }
+            self.expected_sequence = Some(seq + 1);
+        }
+
         self.source_sequence = ev.source_sequence;
         self.snapshot_version += 1;
 
@@ -86,6 +106,9 @@ impl OrderBookBuilder {
         for b in bids {
             let p = b.get("price").and_then(Value::as_u64).ok_or("Invalid bid price")?;
             let q = b.get("quantity").and_then(Value::as_u64).ok_or("Invalid bid quantity")?;
+            if q == 0 {
+                return Err("Zero quantity in bid level".to_string());
+            }
             self.bids.push(PriceLevel {
                 price: Price::from_raw(p),
                 quantity: Quantity::from_raw(q),
@@ -98,6 +121,9 @@ impl OrderBookBuilder {
         for a in asks {
             let p = a.get("price").and_then(Value::as_u64).ok_or("Invalid ask price")?;
             let q = a.get("quantity").and_then(Value::as_u64).ok_or("Invalid ask quantity")?;
+            if q == 0 {
+                return Err("Zero quantity in ask level".to_string());
+            }
             self.asks.push(PriceLevel {
                 price: Price::from_raw(p),
                 quantity: Quantity::from_raw(q),

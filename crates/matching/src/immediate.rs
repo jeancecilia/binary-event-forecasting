@@ -48,7 +48,6 @@ pub fn match_immediate(
     }
 
     let required_quantity = Quantity::from_raw(intent.quantity);
-    let price_limit = Price::from_raw(intent.price_limit);
     let is_buy = matches!(intent.book_side, BookSide::Bid);
 
 
@@ -65,6 +64,13 @@ pub fn match_immediate(
         Err(e) => return MatchResult::Rejected { reason: format!("Cost model error: {e}") },
     };
 
+    let inv_key = crate::inventory::InventoryKey {
+        market_id: intent.market_id.clone(),
+        outcome_id: intent.contract_or_outcome_id.clone(),
+        side: intent.outcome_side.clone(),
+    };
+    let mut inv_line = candidate.inventory.get_line(&inv_key);
+
     if is_buy {
         if !candidate.free_cash.is_at_least(cash_required.as_raw()) {
             return MatchResult::Rejected {
@@ -75,11 +81,11 @@ pub fn match_immediate(
             };
         }
     } else {
-        if !candidate.free_inventory.is_at_least(&fill_plan.filled_quantity) {
+        if !inv_line.free.is_at_least(&fill_plan.filled_quantity) {
             return MatchResult::Rejected {
                 reason: format!(
                     "Insufficient inventory: available={}, required={}",
-                    candidate.free_inventory.as_raw(), fill_plan.filled_quantity.as_raw()
+                    inv_line.free.as_raw(), fill_plan.filled_quantity.as_raw()
                 ),
             };
         }
@@ -112,16 +118,18 @@ pub fn match_immediate(
             Err(e) => return MatchResult::Rejected { reason: e.to_string() },
         };
     } else {
-        candidate.free_inventory = match candidate.free_inventory.checked_sub(&fill_plan.filled_quantity) {
+        inv_line.free = match inv_line.free.checked_sub(&fill_plan.filled_quantity) {
             Ok(c) => c,
             Err(e) => return MatchResult::Rejected { reason: e.to_string() },
         };
-        candidate.reserved_inventory = match candidate.reserved_inventory.checked_add(
-            &fill_plan.filled_quantity
-        ) {
+        inv_line.reserved = match inv_line.reserved.checked_add(&fill_plan.filled_quantity) {
             Ok(r) => r,
             Err(e) => return MatchResult::Rejected { reason: e.to_string() },
         };
+        
+        if let Err(e) = candidate.inventory.insert_line(inv_key, inv_line) {
+            return MatchResult::Rejected { reason: e };
+        }
     }
 
     for level in &fill_plan.level_fills {
@@ -137,11 +145,6 @@ pub fn match_immediate(
     if let Err(e) = candidate.verify_cash_invariant() {
         return MatchResult::Rejected {
             reason: format!("Cash invariant violation after fill: {e}"),
-        };
-    }
-    if let Err(e) = candidate.verify_inventory_invariant() {
-        return MatchResult::Rejected {
-            reason: format!("Inventory invariant violation after fill: {e}"),
         };
     }
 

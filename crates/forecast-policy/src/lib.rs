@@ -121,10 +121,12 @@ pub fn apply_policy(
         > config.probability_threshold.as_raw()
     {
         // High probability → buy YES
-        (BookSide::Bid, OutcomeSide::Yes, calibrated.as_raw())
+        let price_raw = (calibrated.as_raw() as u128 * domain_types::PRICE_SCALE as u128 / probability_scale as u128) as u64;
+        (BookSide::Bid, OutcomeSide::Yes, price_raw)
     } else if calibrated.as_raw() < probability_scale - config.probability_threshold.as_raw() {
         // Low probability → buy NO (sell YES)
-        (BookSide::Ask, OutcomeSide::No, probability_scale - calibrated.as_raw())
+        let price_raw = ((probability_scale - calibrated.as_raw()) as u128 * domain_types::PRICE_SCALE as u128 / probability_scale as u128) as u64;
+        (BookSide::Ask, OutcomeSide::No, price_raw)
     } else {
         return Ok(PolicyResult::Abstain {
             reason: "Probability within no-trade zone".to_string(),

@@ -1,4 +1,4 @@
-"""Enumerations for the contracts definitions (IPC-003, FCP-002, etc)."""
+"""Enumerations for the contracts definitions (IPC-003, FCP-002, etc)."""
 
 from enum import StrEnum
 
@@ -6,24 +6,28 @@ from enum import StrEnum
 class ReceiptStatus(StrEnum):
     ACCEPTED_QUEUED = "AcceptedQueued"
     DUPLICATE_RETRY = "DuplicateRetry"
-    VALIDATION_FAILED = "ValidationFailed"
-    AUTHENTICATION_FAILED = "AuthenticationFailed"
-    AUTHORIZATION_FAILED = "AuthorizationFailed"
-    CAPACITY_EXCEEDED = "CapacityExceeded"
-    INTERNAL_ERROR = "InternalError"
-    PARSING_ERROR = "ParsingError"
+    EXPIRED_ON_ARRIVAL = "ExpiredOnArrival"
+    REJECTED_SCHEMA = "RejectedSchema"
+    REJECTED_BOUNDS = "RejectedBounds"
+    REJECTED_CAPACITY = "RejectedCapacity"
+    REJECTED_TARGET_VERSION = "RejectedTargetVersion"
+    REJECTED_RATE_LIMIT = "RejectedRateLimit"
+    REPLAY_SEQUENCE_VIOLATION = "ReplaySequenceViolation"
+    CORE_DEGRADED = "CoreDegraded"
 
 
 class DispositionStatus(StrEnum):
     VALIDATED = "Validated"
     EVALUATED = "Evaluated"
-    MATCHED = "Matched"
-    SETTLED = "Settled"
-    EXPIRED = "Expired"
-    CANCELLED = "Cancelled"
-    REJECTED_COST = "RejectedCost"
-    REJECTED_HORIZON = "RejectedHorizon"
-    REJECTED_STATE = "RejectedState"
+    ABSTAINED = "Abstained"
+    SIMULATION_SUBMITTED = "SimulationSubmitted"
+    SIMULATED = "Simulated"
+    PARTIALLY_FILLED = "PartiallyFilled"
+    SIMULATION_REJECTED = "SimulationRejected"
+    SIMULATION_FAILED = "SimulationFailed"
+    SUPERSEDED = "Superseded"
+    EVICTED = "Evicted"
+    EXPIRED_IN_QUEUE = "ExpiredInQueue"
 
 
 class BookSide(StrEnum):

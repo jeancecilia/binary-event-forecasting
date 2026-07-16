@@ -80,9 +80,23 @@ impl IpcServer {
                             socket.read_exact(&mut payload)
                         ).await {
                             // Deserialize & Validate
-                            if let Ok(_msg) = serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
+                            if let Ok(msg) = serde_json::from_slice::<protocol::ForecastMessage>(&payload) {
                                 // TODO: dispatch message to journal
-                                let _ = socket.write_all(b"ACK").await;
+                                
+                                let receipt = protocol::ReceiptAcknowledgement {
+                                    schema_version: 1,
+                                    message_id: msg.message_id.clone(),
+                                    receipt_status: protocol::enums::ReceiptStatus::AcceptedQueued,
+                                    timestamp: chrono::Utc::now(),
+                                    receipt_id: uuid::Uuid::now_v7().to_string(),
+                                    detail: None,
+                                };
+                                
+                                if let Ok(resp_bytes) = serde_json::to_vec(&receipt) {
+                                    let resp_len = (resp_bytes.len() as u32).to_be_bytes();
+                                    let _ = socket.write_all(&resp_len).await;
+                                    let _ = socket.write_all(&resp_bytes).await;
+                                }
                             }
                         }
                     }

@@ -85,6 +85,7 @@ pub async fn run(config: Option<ReplayConfig>) -> anyhow::Result<()> {
         forecasts = result_a.forecasts_processed,
         fills = result_a.fills,
         rejections = result_a.rejections,
+        violations = ?result_a.violations,
         "Replay run 1 complete"
     );
 
@@ -160,6 +161,20 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
 
+    if events.len() as u64 != manifest.expected_event_count {
+        anyhow::bail!("Event count mismatch: expected {}, got {}", manifest.expected_event_count, events.len());
+    }
+
+    let forecasts: Vec<ForecastMessage> = forecasts_str
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    if forecasts.len() as u64 != manifest.expected_forecast_count {
+        anyhow::bail!("Forecast count mismatch: expected {}, got {}", manifest.expected_forecast_count, forecasts.len());
+    }
+
     let mut builder = OrderBookBuilder::new(
         "market-replay-001",
         "yes",
@@ -169,19 +184,74 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
 
     let snapshot = builder.build(logical_clock, logical_time_to_utc(logical_clock)).unwrap();
     
-    // Create a sample forecast
-    let forecast: ForecastMessage = serde_json::from_str(
-        forecasts_str.lines().next().unwrap()
-    ).unwrap();
-    forecasts_processed += 1;
+    for forecast in forecasts {
+        forecasts_processed += 1;
 
     // Step 5: Validate the forecast
     if let Err(e) = forecast.validate(config.probability_scale) {
-        violations.push(format!("Forecast validation failed: {e}"));
-        // In production, this returns RejectedSchema or RejectedBounds
+        let reason = format!("Forecast validation failed: {e}");
+        violations.push(reason.clone());
+        
+        let record = create_journal_record(
+            &forecast.message_id,
+            "RejectedSchema",
+            logical_clock,
+            "",
+        );
+        journal_records.push(record);
+
+        // Fail closed - do not proceed with accepted message
+        let final_state_hash = compute_final_state_hash(
+            &ledger,
+            &journal_records,
+            fills,
+            rejections,
+            &manifest.market_events_sha256,
+        );
+
+        return Ok(ReplayResult {
+            final_state_hash,
+            events_processed,
+            forecasts_processed,
+            intents_simulated,
+            fills,
+            rejections,
+            violations,
+        });
     }
 
-    // Step 6: Write AcceptedQueued to journal
+    // Step 6: Write AcceptedQueued to SQLite journal
+    let mut journal_conn = journal::db::open_journal(":memory:").unwrap();
+    let forecast_bytes = serde_json::to_vec(&forecast).unwrap();
+    let forecast_hash = hex::encode(Sha256::digest(&forecast_bytes));
+    
+    // Test the sender sequence retry and rejection logic
+    let receipt_status = match journal::db::process_forecast_receipt(
+        &mut journal_conn,
+        &forecast.message_id,
+        &forecast.sender_instance_id,
+        forecast.sender_sequence,
+        &forecast_hash,
+    ) {
+        Ok(status) => status,
+        Err(e) => {
+            violations.push(format!("SQLite Error: {e}"));
+            return Ok(ReplayResult {
+                final_state_hash: "".to_string(),
+                events_processed,
+                forecasts_processed,
+                intents_simulated,
+                fills,
+                rejections,
+                violations,
+            });
+        }
+    };
+    
+    if receipt_status != protocol::enums::ReceiptStatus::AcceptedQueued {
+        violations.push(format!("Receipt status not AcceptedQueued: {:?}", receipt_status));
+    }
+
     let record = create_journal_record(
         &forecast.message_id,
         "AcceptedQueued",
@@ -224,7 +294,6 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
             // Step 9: Execute all-or-none match
             let mut matching_state = VirtualMatchingState::new(
                 Cash::new(1_000_000_000),
-                Quantity::from_raw(1_000_000_000),
             );
             let cost_model = FixedBpsCostModel::new(10); // 10 bps fee
             let match_result = match_immediate(&intent, &snapshot, &mut matching_state, &cost_model);
@@ -282,12 +351,15 @@ fn execute_replay(config: &ReplayConfig) -> anyhow::Result<ReplayResult> {
         }
     }
 
+    } // end of for forecast in forecasts
+
     // Step 13: Generate canonical final-state hash
     let final_state_hash = compute_final_state_hash(
         &ledger,
         &journal_records,
         fills,
         rejections,
+        &manifest.market_events_sha256,
     );
 
     Ok(ReplayResult {
@@ -328,7 +400,7 @@ fn create_journal_record(
         canonical_payload_hash: "replay-payload-hash".to_string(),
         previous_record_hash: "replay-prev-hash".to_string(),
         checksum: "replay-checksum".to_string(),
-        created_at_runtime: Utc::now(),
+        created_at_runtime: logical_time_to_utc(logical_timestamp),
     }
 }
 
@@ -338,21 +410,19 @@ fn compute_final_state_hash(
     journal: &[JournalRecord],
     fills: u64,
     rejections: u64,
+    manifest_hash: &str,
 ) -> String {
     let mut hasher = Sha256::new();
 
-    // Hash ledger state
+    hasher.update(b"manifest:");
+    hasher.update(manifest_hash.as_bytes());
+
     hasher.update(b"ledger:");
-    hasher.update(ledger.free_cash.as_raw().to_be_bytes());
-    hasher.update(ledger.reserved_cash.as_raw().to_be_bytes());
-    hasher.update(ledger.total_cash.as_raw().to_be_bytes());
-    hasher.update(ledger.version.to_be_bytes());
+    hasher.update(serde_json::to_vec(ledger).expect("Failed to serialize ledger"));
 
-    // Hash journal record count
-    hasher.update(b"journal_count:");
-    hasher.update((journal.len() as u64).to_be_bytes());
+    hasher.update(b"journal:");
+    hasher.update(serde_json::to_vec(journal).expect("Failed to serialize journal"));
 
-    // Hash counters
     hasher.update(b"fills:");
     hasher.update(fills.to_be_bytes());
     hasher.update(b"rejections:");

@@ -9,6 +9,7 @@ pub mod immediate;
 pub mod passive_queue;
 pub mod virtual_depth;
 pub mod cost_model;
+pub mod inventory;
 
 use domain_types::{Cash, Notional, Price, Quantity, ReservedCash};
 
@@ -53,25 +54,19 @@ pub struct VirtualMatchingState {
     pub total_cash: Cash,
     /// Shared virtual depth tracker
     pub virtual_depth: virtual_depth::VirtualDepth,
-    /// Free inventory available
-    pub free_inventory: Quantity,
-    /// Inventory reserved for open orders
-    pub reserved_inventory: Quantity,
-    /// Total inventory
-    pub total_inventory: Quantity,
+    /// Inventory tracker
+    pub inventory: inventory::Inventory,
 }
 
 impl VirtualMatchingState {
     /// Create a new virtual matching state with initial cash.
-    pub fn new(initial_cash: Cash, initial_inventory: Quantity) -> Self {
+    pub fn new(initial_cash: Cash) -> Self {
         Self {
             free_cash: initial_cash,
             reserved_cash: ReservedCash::ZERO,
             total_cash: initial_cash,
             virtual_depth: virtual_depth::VirtualDepth::new(),
-            free_inventory: initial_inventory,
-            reserved_inventory: Quantity::ZERO,
-            total_inventory: initial_inventory,
+            inventory: inventory::Inventory::new(),
         }
     }
 
@@ -93,21 +88,5 @@ impl VirtualMatchingState {
         Ok(())
     }
 
-    /// Verify the inventory invariant: FreeInventory + ReservedInventory = TotalInventory
-    pub fn verify_inventory_invariant(&self) -> Result<(), String> {
-        let sum = self
-            .free_inventory
-            .as_raw()
-            .checked_add(self.reserved_inventory.as_raw())
-            .ok_or("Inventory invariant overflow during check")?;
-        if sum != self.total_inventory.as_raw() {
-            return Err(format!(
-                "Inventory invariant violated: free({}) + reserved({}) != total({})",
-                self.free_inventory.as_raw(),
-                self.reserved_inventory.as_raw(),
-                self.total_inventory.as_raw()
-            ));
-        }
-        Ok(())
-    }
+
 }

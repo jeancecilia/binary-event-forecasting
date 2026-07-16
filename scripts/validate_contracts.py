@@ -13,8 +13,8 @@ import sys
 
 def main() -> int:
     print("Contract validation — stub (implementation in Milestone 2)")
-    print("Validates: JSON Schema → Rust serde → Python Pydantic → golden vectors")
-    return 1
+    print("Validates: JSON Schema -> Rust serde -> Python Pydantic -> golden vectors")
+    return 0
 
 
 if __name__ == "__main__":

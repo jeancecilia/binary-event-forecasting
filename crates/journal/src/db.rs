@@ -1,6 +1,6 @@
 //! SQLite journal database operations.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Open the journal database with recommended settings.
 pub fn open_journal(path: &str) -> Result<Connection, rusqlite::Error> {
@@ -90,33 +90,44 @@ pub fn open_journal(path: &str) -> Result<Connection, rusqlite::Error> {
     Ok(conn)
 }
 
-/// Process a forecast receipt transaction.
 pub fn process_forecast_receipt(
     conn: &mut Connection,
     message_id: &str,
     sender_instance_id: &str,
     sender_sequence: u64,
     payload_hash: &str,
-) -> Result<(), rusqlite::Error> {
+) -> Result<protocol::enums::ReceiptStatus, rusqlite::Error> {
     let tx = conn.transaction()?;
 
-    // Check sender sequence
-    let current_seq: Option<u64> = tx.query_row(
-        "SELECT MAX(sender_sequence) FROM sender_sequences WHERE sender_instance_id = ?1",
-        [sender_instance_id],
+    // 1. Check if message_id exists
+    let existing_hash: Option<String> = tx.query_row(
+        "SELECT payload_hash FROM message_receipts WHERE message_id = ?1",
+        [message_id],
         |row| row.get(0),
-    ).ok().flatten();
+    ).optional()?;
 
-    if let Some(seq) = current_seq {
-        if sender_sequence <= seq {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error { code: rusqlite::ffi::ErrorCode::ConstraintViolation, extended_code: 0 },
-                Some("Sender sequence regression".to_string())
-            ));
+    if let Some(hash) = existing_hash {
+        if hash == payload_hash {
+            return Ok(protocol::enums::ReceiptStatus::DuplicateRetry);
+        } else {
+            return Ok(protocol::enums::ReceiptStatus::RejectedSchema);
         }
     }
 
-    // Insert receipt (will fail on duplicate message_id due to PRIMARY KEY)
+    // 2. Check sender sequence regression
+    let current_seq: Option<u64> = tx.query_row(
+        "SELECT MAX(sender_sequence) FROM sender_sequences WHERE sender_instance_id = ?1",
+        [sender_instance_id],
+        |row| row.get::<_, Option<u64>>(0),
+    )?;
+
+    if let Some(seq) = current_seq {
+        if sender_sequence <= seq {
+            return Ok(protocol::enums::ReceiptStatus::ReplaySequenceViolation);
+        }
+    }
+
+    // Insert receipt
     tx.execute(
         "INSERT INTO message_receipts (message_id, receipt_status, received_at, payload_hash) 
          VALUES (?1, ?2, datetime('now'), ?3)",
@@ -131,5 +142,5 @@ pub fn process_forecast_receipt(
     )?;
 
     tx.commit()?;
-    Ok(())
+    Ok(protocol::enums::ReceiptStatus::AcceptedQueued)
 }
